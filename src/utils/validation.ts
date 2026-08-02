@@ -141,60 +141,97 @@ export function isValidPhone(phone?: string): boolean {
 export function getPrefectureFromPostalCode(code: string): string | null {
   const normalized = normalizePostalCode(code)
   if (!normalized) return null
-  
-  const prefix = parseInt(normalized.split('-')[0], 10)
-  
-  // 郵便番号の最初の2-3桁で都道府県を判定
-  const prefectureMap: { [key: number]: string } = {
-    1: '北海道',
-    2: '青森県',
-    3: '岩手県',
-    4: '宮城県',
-    5: '秋田県',
-    6: '山形県',
-    7: '福島県',
-    8: '茨城県',
-    9: '栃木県',
-    10: '群馬県',
-    11: '埼玉県',
-    12: '千葉県',
-    13: '東京都',
-    14: '神奈川県',
-    15: '新潟県',
-    16: '富山県',
-    17: '石川県',
-    18: '福井県',
-    19: '山梨県',
-    20: '長野県',
-    21: '岐阜県',
-    22: '愛知県',
-    23: '三重県',
-    24: '滋賀県',
-    25: '京都府',
-    26: '大阪府',
-    27: '兵庫県',
-    28: '奈良県',
-    29: '和歌山県',
-    30: '鳥取県',
-    31: '島根県',
-    32: '岡山県',
-    33: '広島県',
-    34: '山口県',
-    35: '徳島県',
-    36: '香川県',
-    37: '愛媛県',
-    38: '高知県',
-    39: '福岡県',
-    40: '佐賀県',
-    41: '長崎県',
-    42: '熊本県',
-    43: '大分県',
-    44: '宮崎県',
-    45: '鹿児島県',
-    46: '沖縄県',
+
+  const digits = normalized.replace('-', '')
+  const firstThree = parseInt(digits.slice(0, 3), 10)
+
+  // 郵便番号の最初の3桁で都道府県を判定（日本郵便の体系に基づく）
+  if ((firstThree >= 1 && firstThree <= 99)) return '北海道'
+  if ((firstThree >= 100 && firstThree <= 139)) return '青森県'
+  if ((firstThree >= 20 && firstThree <= 29)) return '岩手県'
+  if ((firstThree >= 980 && firstThree <= 989)) return '宮城県'
+  if ((firstThree >= 10 && firstThree <= 19)) return '秋田県'
+  if ((firstThree >= 990 && firstThree <= 999)) return '山形県'
+  if ((firstThree >= 960 && firstThree <= 979)) return '福島県'
+  if ((firstThree >= 300 && firstThree <= 319)) return '茨城県'
+  if ((firstThree >= 320 && firstThree <= 329)) return '栃木県'
+  if ((firstThree >= 370 && firstThree <= 379)) return '群馬県'
+  if ((firstThree >= 330 && firstThree <= 369)) return '埼玉県'
+  if ((firstThree >= 260 && firstThree <= 299)) return '千葉県'
+  if ((firstThree >= 100 && firstThree <= 199)) return '東京都'
+  if ((firstThree >= 210 && firstThree <= 259)) return '神奈川県'
+  if ((firstThree >= 950 && firstThree <= 959)) return '新潟県'
+  if ((firstThree >= 930 && firstThree <= 939)) return '富山県'
+  if ((firstThree >= 920 && firstThree <= 929)) return '石川県'
+  if ((firstThree >= 910 && firstThree <= 919)) return '福井県'
+  if ((firstThree >= 400 && firstThree <= 409)) return '山梨県'
+  if ((firstThree >= 380 && firstThree <= 399)) return '長野県'
+  if ((firstThree >= 500 && firstThree <= 509)) return '岐阜県'
+  if ((firstThree >= 450 && firstThree <= 499)) return '愛知県'
+  if ((firstThree >= 510 && firstThree <= 519)) return '三重県'
+  if ((firstThree >= 520 && firstThree <= 529)) return '滋賀県'
+  if ((firstThree >= 600 && firstThree <= 629)) return '京都府'
+  if ((firstThree >= 530 && firstThree <= 599)) return '大阪府'
+  if ((firstThree >= 650 && firstThree <= 679)) return '兵庫県'
+  if ((firstThree >= 630 && firstThree <= 649)) return '奈良県'
+  if ((firstThree >= 640 && firstThree <= 649)) return '和歌山県'
+  if ((firstThree >= 680 && firstThree <= 689)) return '鳥取県'
+  if ((firstThree >= 690 && firstThree <= 699)) return '島根県'
+  if ((firstThree >= 700 && firstThree <= 709)) return '岡山県'
+  if ((firstThree >= 730 && firstThree <= 749)) return '広島県'
+  if ((firstThree >= 750 && firstThree <= 759)) return '山口県'
+  if ((firstThree >= 770 && firstThree <= 779)) return '徳島県'
+  if ((firstThree >= 760 && firstThree <= 769)) return '香川県'
+  if ((firstThree >= 790 && firstThree <= 799)) return '愛媛県'
+  if ((firstThree >= 780 && firstThree <= 789)) return '高知県'
+  if ((firstThree >= 810 && firstThree <= 829)) return '福岡県'
+  if ((firstThree >= 840 && firstThree <= 849)) return '佐賀県'
+  if ((firstThree >= 850 && firstThree <= 859)) return '長崎県'
+  if ((firstThree >= 860 && firstThree <= 879)) return '熊本県'
+  if ((firstThree >= 870 && firstThree <= 879)) return '大分県'
+  if ((firstThree >= 880 && firstThree <= 889)) return '宮崎県'
+  if ((firstThree >= 890 && firstThree <= 899)) return '鹿児島県'
+  if ((firstThree >= 900 && firstThree <= 909)) return '沖縄県'
+
+  return null
+}
+
+/**
+ * zipcloud API を使って郵便番号から住所を検索
+ */
+export interface ZipcodeResult {
+  zipcode: string
+  prefecture: string
+  city: string
+  town: string
+}
+
+export async function searchAddressByZipcode(zipcode: string): Promise<ZipcodeResult | null> {
+  try {
+    const normalized = normalizePostalCode(zipcode)
+    if (!normalized) return null
+
+    const digits = normalized.replace('-', '')
+    const url = `https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`
+
+    const response = await fetch(url)
+    const data = await response.json()
+
+    if (data.status === 200 && data.results && data.results.length > 0) {
+      const r = data.results[0]
+      return {
+        zipcode: r.zipcode,
+        prefecture: r.address1,
+        city: r.address2,
+        town: r.address3
+      }
+    }
+
+    return null
+  } catch (error) {
+    console.error('Zipcode search error:', error)
+    return null
   }
-  
-  return prefectureMap[prefix] || null
 }
 
 /**
@@ -203,10 +240,10 @@ export function getPrefectureFromPostalCode(code: string): string | null {
 export interface ValidationResult {
   isValid: boolean
   errors: {
-    name?: string
+    companyName?: string
+    personName?: string
     postalCode?: string
     address?: string
-    message?: string
     phone?: string
   }
 }
@@ -215,34 +252,35 @@ export interface ValidationResult {
  * ハガキデータの全体バリデーション
  */
 export function validatePostcardData(data: {
-  name: string
+  companyName: string
+  personName?: string
   postalCode: string
   address: string
-  message: string
   phone?: string
 }): ValidationResult {
   const errors: ValidationResult['errors'] = {}
-  
-  if (!isValidName(data.name)) {
-    errors.name = '宛名は1〜40文字で入力してください'
+
+  if (!isValidName(data.companyName)) {
+    errors.companyName = '企業名は1〜40文字で入力してください'
   }
-  
+
+  // 名前はオプション
+  if (data.personName && !isValidName(data.personName)) {
+    errors.personName = '名前は1〜40文字で入力してください'
+  }
+
   if (!isValidPostalCode(data.postalCode)) {
     errors.postalCode = '郵便番号は XXX-XXXX 形式で入力してください'
   }
-  
+
   if (!isValidAddress(data.address)) {
     errors.address = '住所は5〜200文字で入力してください'
   }
-  
-  if (!isValidMessage(data.message)) {
-    errors.message = 'メッセージは1〜500文字で入力してください'
-  }
-  
+
   if (!isValidPhone(data.phone)) {
     errors.phone = '電話番号の形式が正しくありません'
   }
-  
+
   return {
     isValid: Object.keys(errors).length === 0,
     errors
