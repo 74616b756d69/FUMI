@@ -47,10 +47,13 @@ const state: AppState = {
   currentPage: 1,
   pageSize: 20,
   filterQuery: '',
+  searchField: 'all',
+  activeCategory: 'all',
   showForm: false,
   editingId: undefined,
   currentView: 'list',
   showSenderForm: false,
+  showExportMenu: false,
   senderInfo: loadSenderInfo(),
   showCalibration: false,
   calibration: loadCalibration()
@@ -121,18 +124,51 @@ function renderMainUI(): string {
       </header>
 
       <main class="w-full max-w-6xl mx-auto px-6 py-8">
+        <!-- カテゴリタブ -->
+        <div class="mb-6 flex gap-2 no-print">
+          <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            すべて
+          </button>
+          <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            業務用
+          </button>
+          <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            プライベート
+          </button>
+        </div>
+
         <!-- コントロールパネル -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
           <div class="space-y-4">
             ${renderDropZone()}
-            <div>
-              <label class="block text-sm font-medium text-slate-700 mb-2">検索</label>
-              <input type="text" id="searchInput" placeholder="名前、住所などで検索..." class="input-field" value="${state.filterQuery}" />
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-slate-700">検索</label>
+              <div class="flex gap-2">
+                <input type="text" id="searchInput" placeholder="検索キーワード..." class="input-field flex-1" value="${state.filterQuery}" />
+                <select id="searchFieldSelect" class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                  <option value="all" ${state.searchField === 'all' ? 'selected' : ''}>すべて</option>
+                  <option value="companyName" ${state.searchField === 'companyName' ? 'selected' : ''}>企業名</option>
+                  <option value="personName" ${state.searchField === 'personName' ? 'selected' : ''}>名前</option>
+                  <option value="address" ${state.searchField === 'address' ? 'selected' : ''}>住所</option>
+                  <option value="postalCode" ${state.searchField === 'postalCode' ? 'selected' : ''}>郵便番号</option>
+                  <option value="memo" ${state.searchField === 'memo' ? 'selected' : ''}>備考</option>
+                </select>
+              </div>
+              <p class="text-xs text-slate-500">フィールドを選択して検索範囲を絞り込めます</p>
             </div>
 
             <div class="flex flex-wrap gap-2">
               <button id="toggleFormBtn" class="button-secondary">+ 手動登録</button>
-              <button id="exportBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
+              <div class="relative">
+                <button id="exportBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
+                ${state.showExportMenu ? `
+                  <div class="absolute top-full mt-2 left-0 bg-white border border-slate-300 rounded-md shadow-lg z-10 min-w-max">
+                    <button id="exportAllBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-200">すべてエクスポート</button>
+                    <button id="exportBusinessBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-200">業務用のみ</button>
+                    <button id="exportPrivateBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50">プライベートのみ</button>
+                  </div>
+                ` : ''}
+              </div>
               <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
               <button id="calibrationBtn" class="button-secondary">位置補正</button>
               <button id="printFrontBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
@@ -173,16 +209,41 @@ function renderMainUI(): string {
  * フィルター適用
  */
 function getFilteredCards(): PostcardData[] {
-  if (!state.filterQuery) return state.postcards
+  let cards = state.postcards
+
+  // カテゴリフィルタ
+  if (state.activeCategory !== 'all') {
+    cards = cards.filter(card => card.category === state.activeCategory)
+  }
+
+  // 検索フィルタ
+  if (!state.filterQuery) return cards
 
   const query = state.filterQuery.toLowerCase()
-  return state.postcards.filter(card =>
-    card.companyName.toLowerCase().includes(query) ||
-    card.personName?.toLowerCase().includes(query) ||
-    card.address.toLowerCase().includes(query) ||
-    card.postalCode?.includes(state.filterQuery) ||
-    card.memo?.toLowerCase().includes(query)
-  )
+  const queryNumeric = state.filterQuery
+
+  return cards.filter(card => {
+    if (state.searchField === 'all') {
+      return (
+        card.companyName.toLowerCase().includes(query) ||
+        card.personName?.toLowerCase().includes(query) ||
+        card.address.toLowerCase().includes(query) ||
+        card.postalCode?.includes(queryNumeric) ||
+        card.memo?.toLowerCase().includes(query)
+      )
+    } else if (state.searchField === 'companyName') {
+      return card.companyName.toLowerCase().includes(query)
+    } else if (state.searchField === 'personName') {
+      return card.personName?.toLowerCase().includes(query) || false
+    } else if (state.searchField === 'address') {
+      return card.address.toLowerCase().includes(query)
+    } else if (state.searchField === 'postalCode') {
+      return card.postalCode?.includes(queryNumeric) || false
+    } else if (state.searchField === 'memo') {
+      return card.memo?.toLowerCase().includes(query) || false
+    }
+    return true
+  })
 }
 
 function renderAddressTable(postcards: PostcardData[]): string {
@@ -193,6 +254,7 @@ function renderAddressTable(postcards: PostcardData[]): string {
         <thead>
           <tr class="border-b-2 border-slate-200 text-left">
             <th class="py-3 px-2 w-10">#</th>
+            <th class="py-3 px-2">カテゴリ</th>
             <th class="py-3 px-2">企業名</th>
             <th class="py-3 px-2">名前</th>
             <th class="py-3 px-2 text-slate-400 font-normal text-xs">フリガナ</th>
@@ -207,6 +269,11 @@ function renderAddressTable(postcards: PostcardData[]): string {
           ${postcards.map((card, i) => `
             <tr class="border-b border-slate-100 hover:bg-slate-50">
               <td class="py-2 px-2 text-slate-400">${startIndex + i + 1}</td>
+              <td class="py-2 px-2">
+                <span class="inline-block px-2 py-1 text-xs rounded font-medium ${card.category === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}">
+                  ${card.category === 'business' ? '業務用' : 'プライベート'}
+                </span>
+              </td>
               <td class="py-2 px-2 font-medium">${escapeHtml(card.companyName)}</td>
               <td class="py-2 px-2">${escapeHtml(card.personName || '')}</td>
               <td class="py-2 px-2 text-slate-400 text-xs">${escapeHtml(card.furigana || '')}</td>
@@ -355,6 +422,20 @@ function renderFormPanel(): string {
       </h3>
 
       <form id="postcardForm" class="space-y-4">
+        <div class="bg-slate-100 p-4 rounded-md mb-4">
+          <label class="block text-sm font-medium text-slate-700 mb-2">カテゴリ</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" id="categoryBusiness" name="formCategory" value="business" ${!editing || editing.category === 'business' ? 'checked' : ''} class="w-4 h-4" />
+              <span class="text-sm text-slate-700">業務用</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" id="categoryPrivate" name="formCategory" value="private" ${editing?.category === 'private' ? 'checked' : ''} class="w-4 h-4" />
+              <span class="text-sm text-slate-700">プライベート</span>
+            </label>
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -488,30 +569,53 @@ function getAddresseeInfo(card: PostcardData): { addressExtra: string; mainName:
   return { addressExtra: '', mainName: company }
 }
 
-/**
- * 郵便番号枠（7桁）のHTML生成
- */
+function toVerticalText(text: string): string {
+  const halfToFull: Record<string, string> = {
+    '0': '〇', '1': '一', '2': '二', '3': '三', '4': '四',
+    '5': '五', '6': '六', '7': '七', '8': '八', '9': '九',
+    '-': '丨', 'ー': '丨'
+  }
+  return text.replace(/[0-9\-ー]/g, ch => halfToFull[ch] || ch)
+}
+
 function renderZipcodeBoxes(postalCode: string): string {
   const digits = (postalCode || '').replace(/\D/g, '').padEnd(7, ' ').split('')
   return `
     <div class="postcard-front-zipcode">
-      ${digits.map((d, i) => `<span class="zip-box${i === 3 ? ' zip-gap' : ''}">${escapeHtml(d.trim())}</span>`).join('')}
+      <div class="zip-group-3">
+        ${digits.slice(0, 3).map(d => `<span class="zip-box">${escapeHtml(d.trim())}</span>`).join('')}
+      </div>
+      <div class="zip-group-4">
+        ${digits.slice(3, 7).map(d => `<span class="zip-box">${escapeHtml(d.trim())}</span>`).join('')}
+      </div>
     </div>
   `
 }
 
 function renderPostcardFront(card: PostcardData): string {
   const { addressExtra, mainName } = getAddresseeInfo(card)
+  const s = state.senderInfo
+  const hasSender = s.companyName || s.personName || s.address
 
   return `
     <div class="postcard-front">
       <div class="postcard-front-stamp">切手</div>
       ${renderZipcodeBoxes(card.postalCode || '')}
       <div class="postcard-front-address-area">
-        <p class="address-line">${escapeHtml(card.address)}</p>
-        ${addressExtra ? `<p class="address-line address-extra">${escapeHtml(addressExtra)}</p>` : ''}
-        <p class="address-name">${escapeHtml(mainName)}</p>
+        <p class="address-line">${escapeHtml(toVerticalText(card.address))}</p>
+        ${addressExtra ? `<p class="address-line address-company">${escapeHtml(toVerticalText(addressExtra))}</p>` : ''}
       </div>
+      <div class="postcard-front-name-area">
+        <p class="address-name">${escapeHtml(toVerticalText(mainName))}</p>
+      </div>
+      ${hasSender ? `
+        <div class="postcard-front-sender">
+          ${s.postalCode ? `<p class="sender-zip">〒${escapeHtml(s.postalCode)}</p>` : ''}
+          ${s.address ? `<p class="sender-addr">${escapeHtml(toVerticalText(s.address))}</p>` : ''}
+          ${s.companyName ? `<p class="sender-co">${escapeHtml(toVerticalText(s.companyName))}</p>` : ''}
+          ${s.personName ? `<p class="sender-nm">${escapeHtml(toVerticalText(s.personName))}</p>` : ''}
+        </div>
+      ` : ''}
     </div>
   `
 }
@@ -593,13 +697,50 @@ function bindEvents(): void {
     render()
   })
 
+  // カテゴリ切り替え
+  const categoryAllBtn = document.getElementById('categoryAllBtn')
+  const categoryBusinessBtn = document.getElementById('categoryBusinessBtn')
+  const categoryPrivateBtn = document.getElementById('categoryPrivateBtn')
+
+  if (categoryAllBtn) {
+    categoryAllBtn.addEventListener('click', () => {
+      state.activeCategory = 'all'
+      state.currentPage = 1
+      render()
+    })
+  }
+  if (categoryBusinessBtn) {
+    categoryBusinessBtn.addEventListener('click', () => {
+      state.activeCategory = 'business'
+      state.currentPage = 1
+      render()
+    })
+  }
+  if (categoryPrivateBtn) {
+    categoryPrivateBtn.addEventListener('click', () => {
+      state.activeCategory = 'private'
+      state.currentPage = 1
+      render()
+    })
+  }
+
   // 検索
   const searchInput = getElement('searchInput') as HTMLInputElement
+  const searchFieldSelect = document.getElementById('searchFieldSelect') as HTMLSelectElement
+
   searchInput.addEventListener('input', (e) => {
     state.filterQuery = (e.target as HTMLInputElement).value
     state.currentPage = 1
     render()
   })
+
+  if (searchFieldSelect) {
+    searchFieldSelect.addEventListener('change', (e) => {
+      state.searchField = (e.target as HTMLSelectElement).value as any
+      state.currentPage = 1
+      render()
+    })
+  }
 
   // ページネーション
   const prevBtn = document.getElementById('prevBtn')
@@ -805,12 +946,29 @@ function bindEvents(): void {
 
   // エクスポート・削除・印刷・PDF出力
   const exportBtn = getElement('exportBtn')
+  const exportAllBtn = document.getElementById('exportAllBtn')
+  const exportBusinessBtn = document.getElementById('exportBusinessBtn')
+  const exportPrivateBtn = document.getElementById('exportPrivateBtn')
   const deleteAllBtn = getElement('deleteAllBtn')
   const printBackBtn = document.getElementById('printBackBtn')
   const printFrontBtn = document.getElementById('printFrontBtn')
   const pdfExportBtn = document.getElementById('pdfExportBtn')
 
-  exportBtn.addEventListener('click', handleExport)
+  exportBtn.addEventListener('click', () => {
+    state.showExportMenu = !state.showExportMenu
+    render()
+  })
+
+  if (exportAllBtn) {
+    exportAllBtn.addEventListener('click', () => handleExport())
+  }
+  if (exportBusinessBtn) {
+    exportBusinessBtn.addEventListener('click', () => handleExport('business'))
+  }
+  if (exportPrivateBtn) {
+    exportPrivateBtn.addEventListener('click', () => handleExport('private'))
+  }
+
   deleteAllBtn.addEventListener('click', handleDeleteAll)
   if (printBackBtn) {
     printBackBtn.addEventListener('click', handlePrintBack)
@@ -838,6 +996,7 @@ async function processCSVFile(file: File): Promise<void> {
       const street = row['番地・建物名'] || ''
       const combinedAddress = [prefecture, city, street].filter(Boolean).join('')
       return {
+        category: (row.category || row['カテゴリ'] || 'business') as any,
         companyName: row.companyName || row['企業名'] || '',
         personName: row.personName || row['名前'] || '',
         furigana: row.furigana || row['フリガナ'] || '',
@@ -873,6 +1032,7 @@ async function processCSVFile(file: File): Promise<void> {
 async function handleFormSubmit(e: Event): Promise<void> {
   e.preventDefault()
 
+  const category = (document.querySelector('input[name="formCategory"]:checked') as HTMLInputElement).value as any
   const companyName = (document.getElementById('formCompanyName') as HTMLInputElement).value.trim()
   const personName = (document.getElementById('formPersonName') as HTMLInputElement).value.trim()
   const furigana = (document.getElementById('formFurigana') as HTMLInputElement).value.trim()
@@ -904,6 +1064,7 @@ async function handleFormSubmit(e: Event): Promise<void> {
 
     if (state.editingId) {
       await storage.update(state.editingId, {
+        category,
         companyName,
         personName: personName || undefined,
         furigana: furigana || undefined,
@@ -914,6 +1075,7 @@ async function handleFormSubmit(e: Event): Promise<void> {
       })
     } else {
       await storage.add({
+        category,
         companyName,
         personName: personName || undefined,
         furigana: furigana || undefined,
@@ -995,9 +1157,15 @@ async function handleDeleteAll(): Promise<void> {
 /**
  * CSVエクスポート
  */
-async function handleExport(): Promise<void> {
+async function handleExport(category?: string): Promise<void> {
   try {
-    const data = state.postcards.map(card => ({
+    let cards = state.postcards
+    if (category) {
+      cards = cards.filter(card => card.category === category)
+    }
+
+    const data = cards.map(card => ({
+      'カテゴリ': card.category === 'business' ? '業務用' : 'プライベート',
       '企業名': card.companyName,
       '名前': card.personName || '',
       'フリガナ': card.furigana || '',
@@ -1008,17 +1176,27 @@ async function handleExport(): Promise<void> {
       '登録日': new Date(card.createdAt).toLocaleDateString('ja-JP')
     }))
 
+    if (data.length === 0) {
+      alert('エクスポートするデータがありません')
+      return
+    }
+
     const csv = objectsToCSV(data)
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF])
     const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
 
+    const timestamp = Date.now()
+    const suffix = category ? (category === 'business' ? '-business' : '-private') : ''
+
     link.href = url
-    link.download = `postcards-${Date.now()}.csv`
+    link.download = `postcards${suffix}-${timestamp}.csv`
     link.click()
 
     URL.revokeObjectURL(url)
+    state.showExportMenu = false
+    render()
   } catch (error) {
     console.error('エクスポート処理でエラーが発生しました:', error)
     alert('エクスポートに失敗しました')

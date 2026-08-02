@@ -2,8 +2,11 @@
  * ハガキデータ型定義
  */
 
+export type PostcardCategory = 'business' | 'private'
+
 export interface PostcardData {
   id: string;
+  category: PostcardCategory;
   companyName: string;
   personName?: string;
   furigana?: string;
@@ -44,10 +47,13 @@ export interface AppState {
   currentPage: number;
   pageSize: number;
   filterQuery: string;
+  searchField: 'all' | 'companyName' | 'personName' | 'address' | 'postalCode' | 'memo';
+  activeCategory: 'all' | PostcardCategory;
   showForm: boolean;
   editingId?: string;
   currentView: 'list' | 'preview';
   showSenderForm: boolean;
+  showExportMenu: boolean;
   senderInfo: SenderInfo;
   showCalibration: boolean;
   calibration: CalibrationSettings;

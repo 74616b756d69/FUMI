@@ -124,7 +124,12 @@ export class PostcardStorage {
       }
 
       request.onsuccess = () => {
-        resolve(request.result)
+        const cards = request.result as any[]
+        const result = cards.map(card => ({
+          ...card,
+          category: card.category || 'business'
+        }))
+        resolve(result)
       }
     })
   }
@@ -142,7 +147,15 @@ export class PostcardStorage {
       }
 
       request.onsuccess = () => {
-        resolve(request.result || null)
+        const card = request.result
+        if (!card) {
+          resolve(null)
+          return
+        }
+        resolve({
+          ...card,
+          category: card.category || 'business'
+        })
       }
     })
   }
