@@ -4,11 +4,14 @@
 
 export interface PostcardData {
   id: string;
-  name: string;
+  companyName: string;
+  personName?: string;
   address: string;
-  message: string;
   postalCode?: string;
   phone?: string;
+  memo?: string;
+  createdAt: number;
+  geocodingStatus?: 'pending' | 'verified' | 'failed';
 }
 
 export interface PostcardTemplate {
@@ -24,4 +27,9 @@ export interface AppState {
   template: PostcardTemplate;
   selectedIds: Set<string>;
   isLoading: boolean;
+  currentPage: number;
+  pageSize: number;
+  filterQuery: string;
+  showForm: boolean;
+  editingId?: string;
 }
