@@ -110,6 +110,141 @@
   margin-top: 1mm;
 }
 
+/* 宛名面スタイル（日本郵便ハガキ 100mm×148mm 準拠） */
+.postcard-front {
+  width: 100mm;
+  height: 148mm;
+  background: #fff;
+  color: #1a1a1a;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  font-family: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "MS PMincho", serif;
+}
+
+.postcard-front-stamp {
+  position: absolute;
+  top: 5mm;
+  left: 5mm;
+  width: 20mm;
+  height: 26mm;
+  border: 0.3mm dashed #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 6pt;
+  color: #999;
+}
+
+/* 郵便番号枠：日本郵便規格準拠 */
+.postcard-front-zipcode {
+  position: absolute;
+  top: 8mm;
+  right: 6mm;
+  display: flex;
+  gap: 2mm;
+}
+
+.zip-group-3,
+.zip-group-4 {
+  display: flex;
+  gap: 0.5mm;
+}
+
+.zip-group-4 {
+  margin-left: 1.5mm;
+}
+
+.zip-box {
+  width: 5.7mm;
+  height: 8mm;
+  border: 0.3mm solid #d33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11pt;
+  font-family: sans-serif;
+  color: #d33;
+}
+
+/* 宛先住所エリア（右寄り縦書き） */
+.postcard-front-address-area {
+  position: absolute;
+  top: 25mm;
+  bottom: 30mm;
+  right: 8mm;
+  left: 45mm;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+}
+
+.postcard-front-address-area .address-line {
+  font-size: 10pt;
+  line-height: 2;
+  letter-spacing: 0.1em;
+}
+
+.postcard-front-address-area .address-company {
+  font-size: 9pt;
+  line-height: 2;
+  margin-right: 2mm;
+}
+
+/* 宛名エリア（中央付近に大きく） */
+.postcard-front-name-area {
+  position: absolute;
+  top: 30mm;
+  bottom: 30mm;
+  left: 25mm;
+  right: 25mm;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  display: flex;
+  justify-content: center;
+}
+
+.postcard-front-name-area .address-name {
+  font-size: 16pt;
+  font-weight: bold;
+  letter-spacing: 0.2em;
+}
+
+/* 差出人エリア（左下、縦書き） */
+.postcard-front-sender {
+  position: absolute;
+  bottom: 8mm;
+  left: 5mm;
+  top: 80mm;
+  width: 22mm;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-size: 7pt;
+  line-height: 1.8;
+}
+
+.postcard-front-sender .sender-zip {
+  font-size: 6pt;
+  color: #555;
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  margin-bottom: 1mm;
+}
+
+.postcard-front-sender .sender-addr {
+  font-size: 7pt;
+}
+
+.postcard-front-sender .sender-co {
+  font-size: 8pt;
+  font-weight: bold;
+  margin-right: 1.5mm;
+}
+
+.postcard-front-sender .sender-nm {
+  font-size: 7pt;
+  margin-right: 1mm;
+}
+
 /* 画面では印刷エリアを非表示 */
 .print-only {
   display: none;
@@ -124,6 +259,8 @@
   body {
     margin: 0 !important;
     padding: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .no-print,
@@ -137,16 +274,21 @@
     display: block !important;
   }
 
-  .postcard-back {
+  .postcard-back,
+  .postcard-front {
     width: 100mm;
     height: 148mm;
     page-break-after: always;
     page-break-inside: avoid;
     border: none;
     box-shadow: none;
+    position: relative;
+    overflow: hidden;
+    transform: translate(var(--offset-x, 0mm), var(--offset-y, 0mm));
   }
 
-  .postcard-back:last-child {
+  .postcard-back:last-child,
+  .postcard-front:last-child {
     page-break-after: auto;
   }
 }
