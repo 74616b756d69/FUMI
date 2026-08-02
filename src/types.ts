@@ -6,6 +6,7 @@ export interface PostcardData {
   id: string;
   companyName: string;
   personName?: string;
+  furigana?: string;
   address: string;
   postalCode?: string;
   phone?: string;
@@ -30,6 +31,11 @@ export interface SenderInfo {
   phone: string;
 }
 
+export interface CalibrationSettings {
+  offsetX: number;
+  offsetY: number;
+}
+
 export interface AppState {
   postcards: PostcardData[];
   template: PostcardTemplate;
@@ -43,4 +49,6 @@ export interface AppState {
   currentView: 'list' | 'preview';
   showSenderForm: boolean;
   senderInfo: SenderInfo;
+  showCalibration: boolean;
+  calibration: CalibrationSettings;
 }
