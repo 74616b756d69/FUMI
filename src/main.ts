@@ -580,16 +580,43 @@ function toVerticalText(text: string): string {
 
 function renderZipcodeBoxes(postalCode: string): string {
   const digits = (postalCode || '').replace(/\D/g, '').padEnd(7, ' ').split('')
-  return `
-    <div class="postcard-front-zipcode">
-      <div class="zip-group-3">
-        ${digits.slice(0, 3).map(d => `<span class="zip-box">${escapeHtml(d.trim())}</span>`).join('')}
-      </div>
-      <div class="zip-group-4">
-        ${digits.slice(3, 7).map(d => `<span class="zip-box">${escapeHtml(d.trim())}</span>`).join('')}
-      </div>
-    </div>
-  `
+
+  // SVG ViewBox方式（1mm = 1単位）でハガキ100mm×148mmを定義
+  // 郵便番号枠は右上付近
+  const boxWidth = 5.7
+  const boxHeight = 8
+  const gap = 0.5
+  const groupGap = 2
+
+  // 最初の3桁
+  let currentX = 44
+  const group3Boxes = digits.slice(0, 3).map((d, i) => {
+    const x = currentX + i * (boxWidth + gap)
+    return `<g>
+      <rect x="${x}" y="12" width="${boxWidth}" height="${boxHeight}" fill="none" stroke="#d33" stroke-width="0.3"/>
+      <text x="${x + boxWidth / 2}" y="${12 + boxHeight / 2 + 1.5}" text-anchor="middle" dominant-baseline="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="#d33">${escapeHtml(d.trim())}</text>
+    </g>`
+  }).join('')
+
+  // 次の4桁
+  const group4X = currentX + 3 * (boxWidth + gap) + groupGap
+  const group4Boxes = digits.slice(3, 7).map((d, i) => {
+    const x = group4X + i * (boxWidth + gap)
+    return `<g>
+      <rect x="${x}" y="12" width="${boxWidth}" height="${boxHeight}" fill="none" stroke="#d33" stroke-width="0.3"/>
+      <text x="${x + boxWidth / 2}" y="${12 + boxHeight / 2 + 1.5}" text-anchor="middle" dominant-baseline="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="#d33">${escapeHtml(d.trim())}</text>
+    </g>`
+  }).join('')
+
+  return `<g class="zipcode-boxes">${group3Boxes}${group4Boxes}</g>`
+}
+
+function renderVerticalText(text: string, x: number, y: number, fontSize: number, fontWeight = 'normal'): string {
+  // 縦書きテキストを個別の文字として描画（各文字は水平方向に配置）
+  const chars = text.split('')
+  return chars.map((char, idx) => {
+    return `<text x="${x}" y="${y + idx * fontSize * 1.2}" font-size="${fontSize}" font-family="Yu Mincho, YuMincho, Hiragino Mincho ProN, MS PMincho, serif" fill="#1a1a1a" font-weight="${fontWeight}">${escapeHtml(char)}</text>`
+  }).join('')
 }
 
 function renderPostcardFront(card: PostcardData): string {
@@ -597,27 +624,45 @@ function renderPostcardFront(card: PostcardData): string {
   const s = state.senderInfo
   const hasSender = s.companyName || s.personName || s.address
 
-  return `
-    <div class="postcard-front">
-      <div class="postcard-front-stamp">切手</div>
+  // SVG ViewBox方式：1mm = 1単位、ハガキ100mm×148mm
+  const svgContent = `
+    <svg viewBox="0 0 100 148" xmlns="http://www.w3.org/2000/svg" class="postcard-svg" preserveAspectRatio="xMidYMid meet">
+      <!-- 白背景 -->
+      <rect width="100" height="148" fill="#ffffff"/>
+
+      <!-- 切手枠（左上） -->
+      <g class="stamp-area">
+        <rect x="5" y="5" width="20" height="26" fill="none" stroke="#999" stroke-width="0.3" stroke-dasharray="1,0.5"/>
+        <text x="15" y="20" text-anchor="middle" font-size="3" fill="#999" font-family="serif">切手</text>
+      </g>
+
+      <!-- 郵便番号枠（SVGベース） -->
       ${renderZipcodeBoxes(card.postalCode || '')}
-      <div class="postcard-front-address-area">
-        <p class="address-line">${escapeHtml(toVerticalText(card.address))}</p>
-        ${addressExtra ? `<p class="address-line address-company">${escapeHtml(toVerticalText(addressExtra))}</p>` : ''}
-      </div>
-      <div class="postcard-front-name-area">
-        <p class="address-name">${escapeHtml(toVerticalText(mainName))}</p>
-      </div>
+
+      <!-- 宛先住所（右寄り縦書き） -->
+      <g class="address-area">
+        ${card.address ? renderVerticalText(toVerticalText(card.address), 90, 25, 4) : ''}
+        ${addressExtra ? renderVerticalText(toVerticalText(addressExtra), 82, 25, 3.6) : ''}
+      </g>
+
+      <!-- 宛名（中央、大きく） -->
+      <g class="name-area">
+        ${renderVerticalText(toVerticalText(mainName), 50, 50, 5.5, 'bold')}
+      </g>
+
+      <!-- 差出人情報（左下、縦書き） -->
       ${hasSender ? `
-        <div class="postcard-front-sender">
-          ${s.postalCode ? `<p class="sender-zip">〒${escapeHtml(s.postalCode)}</p>` : ''}
-          ${s.address ? `<p class="sender-addr">${escapeHtml(toVerticalText(s.address))}</p>` : ''}
-          ${s.companyName ? `<p class="sender-co">${escapeHtml(toVerticalText(s.companyName))}</p>` : ''}
-          ${s.personName ? `<p class="sender-nm">${escapeHtml(toVerticalText(s.personName))}</p>` : ''}
-        </div>
+      <g class="sender-info">
+        ${s.postalCode ? `<text x="8" y="100" font-size="2.8" font-family="serif" fill="#555">〒${escapeHtml(s.postalCode)}</text>` : ''}
+        ${s.address ? renderVerticalText(toVerticalText(s.address), 15, 95, 2.8) : ''}
+        ${s.companyName ? renderVerticalText(toVerticalText(s.companyName), 20, 95, 3.2, 'bold') : ''}
+        ${s.personName ? renderVerticalText(toVerticalText(s.personName), 25, 95, 2.8) : ''}
+      </g>
       ` : ''}
-    </div>
+    </svg>
   `
+
+  return `<div class="postcard-front">${svgContent}</div>`
 }
 
 function renderPostcardBack(): string {
@@ -628,29 +673,44 @@ function renderPostcardBack(): string {
 
   const hasSender = s.companyName || s.personName || s.address
 
-  return `
-    <div class="postcard-back">
-      <div class="postcard-back-content">
-        <div class="postcard-back-greeting">
-          <p class="greeting-main">謹賀新年</p>
-          <p class="greeting-sub">旧年中は格別のお引き立てを賜り<br>厚く御礼申し上げます</p>
-          <p class="greeting-sub">本年も変わらぬご愛顧のほど<br>よろしくお願い申し上げます</p>
-        </div>
-        <div class="postcard-back-footer">
-          <p class="greeting-year">${japaneseYear} 元旦</p>
-          ${hasSender ? `
-            <div class="sender-info">
-              ${s.postalCode ? `<p class="sender-postal">〒${s.postalCode}</p>` : ''}
-              ${s.address ? `<p class="sender-address">${escapeHtml(s.address)}</p>` : ''}
-              ${s.companyName ? `<p class="sender-company">${escapeHtml(s.companyName)}</p>` : ''}
-              ${s.personName ? `<p class="sender-person">${escapeHtml(s.personName)}</p>` : ''}
-              ${s.phone ? `<p class="sender-phone">TEL: ${escapeHtml(s.phone)}</p>` : ''}
-            </div>
-          ` : ''}
-        </div>
-      </div>
-    </div>
+  // SVG ViewBox方式：1mm = 1単位、ハガキ100mm×148mm
+  const svgContent = `
+    <svg viewBox="0 0 100 148" xmlns="http://www.w3.org/2000/svg" class="postcard-svg" preserveAspectRatio="xMidYMid meet">
+      <!-- 白背景 -->
+      <rect width="100" height="148" fill="#ffffff"/>
+
+      <!-- あいさつ文（中央） -->
+      <g class="greeting-area" text-anchor="middle">
+        <text x="50" y="35" font-size="9" font-weight="bold" font-family="Yu Mincho, YuMincho, Hiragino Mincho ProN, MS PMincho, serif" fill="#1a1a1a" letter-spacing="1.5">謹賀新年</text>
+
+        <text x="50" y="52" font-size="3.2" font-family="Yu Mincho, YuMincho, Hiragino Mincho ProN, MS PMincho, serif" fill="#1a1a1a" letter-spacing="0.3">
+          <tspan x="50" dy="4">旧年中は格別のお引き立てを賜り</tspan>
+          <tspan x="50" dy="4">厚く御礼申し上げます</tspan>
+        </text>
+
+        <text x="50" y="72" font-size="3.2" font-family="Yu Mincho, YuMincho, Hiragino Mincho ProN, MS PMincho, serif" fill="#1a1a1a" letter-spacing="0.3">
+          <tspan x="50" dy="4">本年も変わらぬご愛顧のほど</tspan>
+          <tspan x="50" dy="4">よろしくお願い申し上げます</tspan>
+        </text>
+      </g>
+
+      <!-- 年号（下部） -->
+      <text x="50" y="120" text-anchor="middle" font-size="4" font-family="Yu Mincho, YuMincho, Hiragino Mincho ProN, MS PMincho, serif" fill="#1a1a1a">${japaneseYear} 元旦</text>
+
+      <!-- 差出人情報（下部右） -->
+      ${hasSender ? `
+      <g class="sender-info" text-anchor="end">
+        ${s.postalCode ? `<text x="95" y="115" font-size="2.5" font-family="serif" fill="#555">〒${escapeHtml(s.postalCode)}</text>` : ''}
+        ${s.address ? `<text x="95" y="120" font-size="2.8" font-family="serif" fill="#1a1a1a">${escapeHtml(s.address)}</text>` : ''}
+        ${s.companyName ? `<text x="95" y="128" font-size="3.2" font-weight="bold" font-family="serif" fill="#1a1a1a">${escapeHtml(s.companyName)}</text>` : ''}
+        ${s.personName ? `<text x="95" y="134" font-size="2.8" font-family="serif" fill="#1a1a1a">${escapeHtml(s.personName)}</text>` : ''}
+        ${s.phone ? `<text x="95" y="140" font-size="2.5" font-family="serif" fill="#555">TEL: ${escapeHtml(s.phone)}</text>` : ''}
+      </g>
+      ` : ''}
+    </svg>
   `
+
+  return `<div class="postcard-back">${svgContent}</div>`
 }
 
 /**
