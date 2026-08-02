@@ -4,34 +4,7 @@
 
 /* Tailwind CSS カスタムスタイル定義 */
 
-/* ハガキ基本スタイル */
 @layer components {
-  .postcard-base {
-    @apply bg-white border-2 border-slate-200 shadow-lg;
-    width: 148mm;
-    height: 100mm;
-    aspect-ratio: 148 / 100;
-  }
-
-  .postcard-container {
-    @apply flex flex-col items-center justify-center;
-    padding: 20px;
-    min-height: 100vh;
-    @apply bg-slate-50;
-  }
-
-  .postcard-header {
-    @apply font-bold text-lg text-slate-800 mb-4;
-  }
-
-  .postcard-content {
-    @apply text-sm text-slate-700 leading-relaxed;
-  }
-
-  .postcard-footer {
-    @apply text-xs text-slate-500 mt-auto;
-  }
-
   .button-primary {
     @apply px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium;
   }
@@ -41,7 +14,7 @@
   }
 
   .input-field {
-    @apply w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    @apply w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
   }
 
   .text-vertical {
@@ -50,51 +23,141 @@
   }
 }
 
-/* 印刷時のスタイル */
+/* 裏面スタイル（印刷用 & 画面プレビュー共通） */
+.postcard-back {
+  width: 100mm;
+  height: 148mm;
+  background: #fff;
+  color: #1a1a1a;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  font-family: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "MS PMincho", serif;
+}
+
+.postcard-back-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12mm 8mm 8mm 8mm;
+}
+
+.postcard-back-greeting {
+  text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5mm;
+}
+
+.greeting-main {
+  font-size: 24pt;
+  font-weight: bold;
+  letter-spacing: 0.3em;
+  margin-bottom: 4mm;
+}
+
+.greeting-sub {
+  font-size: 9pt;
+  line-height: 2;
+  letter-spacing: 0.05em;
+}
+
+.postcard-back-footer {
+  text-align: center;
+  margin-top: auto;
+}
+
+.greeting-year {
+  font-size: 10pt;
+  margin-bottom: 4mm;
+  letter-spacing: 0.1em;
+}
+
+.sender-info {
+  text-align: right;
+  border-top: 0.5pt solid #ccc;
+  padding-top: 3mm;
+  margin-top: 2mm;
+}
+
+.sender-postal {
+  font-size: 7pt;
+  color: #555;
+}
+
+.sender-address {
+  font-size: 7.5pt;
+  line-height: 1.6;
+}
+
+.sender-company {
+  font-size: 9pt;
+  font-weight: bold;
+  margin-top: 1mm;
+}
+
+.sender-person {
+  font-size: 8pt;
+}
+
+.sender-phone {
+  font-size: 7pt;
+  color: #555;
+  margin-top: 1mm;
+}
+
+/* 画面では印刷エリアを非表示 */
+.print-only {
+  display: none;
+}
+
 @media print {
+  @page {
+    size: 100mm 148mm;
+    margin: 0;
+  }
+
   body {
-    @apply m-0 p-0;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  .postcard-container {
-    @apply min-h-fit;
+  .no-print,
+  header,
+  footer,
+  main {
+    display: none !important;
   }
 
-  .postcard-base {
-    @apply border-0 shadow-none;
+  .print-only {
+    display: block !important;
+  }
+
+  .postcard-back {
+    width: 100mm;
+    height: 148mm;
     page-break-after: always;
+    page-break-inside: avoid;
+    border: none;
+    box-shadow: none;
   }
 
-  .no-print {
-    @apply hidden;
+  .postcard-back:last-child {
+    page-break-after: auto;
   }
 }
 
-/* カスタムスタイル */
 body {
   @apply bg-white text-slate-900;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-a {
-  @apply text-blue-600 hover:text-blue-800;
-}
-
-/* グローバルスコープ化で副作用を抑える */
 .app {
   @apply w-full;
   color: inherit;
   background-color: inherit;
-}
-
-/* レスポンシブ対応 */
-@media (max-width: 768px) {
-  .postcard-base {
-    width: 100vw;
-    max-width: 100%;
-  }
-
-  .postcard-container {
-    @apply p-2;
-  }
 }

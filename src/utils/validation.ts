@@ -218,7 +218,13 @@ export async function searchAddressByZipcode(zipcode: string): Promise<ZipcodeRe
     const data = await response.json()
 
     if (data.status === 200 && data.results && data.results.length > 0) {
-      return data.results[0]
+      const r = data.results[0]
+      return {
+        zipcode: r.zipcode,
+        prefecture: r.address1,
+        city: r.address2,
+        town: r.address3
+      }
     }
 
     return null
@@ -258,9 +264,9 @@ export function validatePostcardData(data: {
     errors.companyName = '企業名は1〜40文字で入力してください'
   }
 
-  // 担当者名はオプション
+  // 名前はオプション
   if (data.personName && !isValidName(data.personName)) {
-    errors.personName = '担当者名は1〜40文字で入力してください'
+    errors.personName = '名前は1〜40文字で入力してください'
   }
 
   if (!isValidPostalCode(data.postalCode)) {

@@ -1,16 +1,24 @@
 import './style.css'
-import { AppState, PostcardData, PostcardTemplate } from './types'
+import { AppState, PostcardData, SenderInfo } from './types'
 import { parseCSV, objectsToCSV } from './utils/csv'
-import { toJapaneseEra, toKanjiNumber } from './utils/kanji'
+import { toJapaneseEra } from './utils/kanji'
 import { storage } from './services/storage'
 import { validatePostcardData, normalizePostalCode, searchAddressByZipcode } from './utils/validation'
 
-/**
- * アプリケーションメインファイル
- * 状態管理・イベントバインド・画面描画を担当
- */
+const SENDER_STORAGE_KEY = 'postcard-app-sender-info'
 
-// アプリケーション状態
+function loadSenderInfo(): SenderInfo {
+  try {
+    const saved = localStorage.getItem(SENDER_STORAGE_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return { companyName: '', personName: '', postalCode: '', address: '', phone: '' }
+}
+
+function saveSenderInfo(info: SenderInfo): void {
+  localStorage.setItem(SENDER_STORAGE_KEY, JSON.stringify(info))
+}
+
 const state: AppState = {
   postcards: [],
   template: {
@@ -23,10 +31,13 @@ const state: AppState = {
   selectedIds: new Set(),
   isLoading: false,
   currentPage: 1,
-  pageSize: 6,
+  pageSize: 20,
   filterQuery: '',
   showForm: false,
-  editingId: undefined
+  editingId: undefined,
+  currentView: 'list',
+  showSenderForm: false,
+  senderInfo: loadSenderInfo()
 }
 
 /**
@@ -55,9 +66,6 @@ async function initApp(): Promise<void> {
   bindEvents()
 }
 
-/**
- * メインUI HTML生成
- */
 function renderMainUI(): string {
   const filteredCards = getFilteredCards()
   const totalPages = Math.ceil(filteredCards.length / state.pageSize)
@@ -71,91 +79,58 @@ function renderMainUI(): string {
       <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
         <div class="max-w-6xl mx-auto px-6 py-6">
           <h1 class="text-3xl font-bold text-blue-900 mb-2">ハガキ印刷システム</h1>
-          <p class="text-blue-700">Vite + TypeScript + Tailwind CSS</p>
         </div>
       </header>
 
       <main class="w-full max-w-6xl mx-auto px-6 py-8">
         <!-- コントロールパネル -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
-          <h2 class="text-xl font-bold text-slate-800 mb-6">データ管理</h2>
-
           <div class="space-y-4">
-            <!-- ファイルアップロード -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-2">
-                  CSVファイルをアップロード
-                </label>
-                <input
-                  type="file"
-                  id="csvFile"
-                  accept=".csv"
-                  class="input-field"
-                />
+                <label class="block text-sm font-medium text-slate-700 mb-2">CSVファイル</label>
+                <input type="file" id="csvFile" accept=".csv" class="input-field" />
               </div>
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-2">
-                  検索
-                </label>
-                <input
-                  type="text"
-                  id="searchInput"
-                  placeholder="名前、住所などで検索..."
-                  class="input-field"
-                />
+                <label class="block text-sm font-medium text-slate-700 mb-2">検索</label>
+                <input type="text" id="searchInput" placeholder="名前、住所などで検索..." class="input-field" value="${state.filterQuery}" />
+              </div>
+              <div class="flex items-end">
+                <button id="uploadBtn" class="button-primary w-full">アップロード</button>
               </div>
             </div>
 
-            <!-- ボタングループ -->
             <div class="flex flex-wrap gap-2">
-              <button id="uploadBtn" class="button-primary">
-                アップロード
-              </button>
-              <button id="toggleFormBtn" class="button-secondary">
-                + 手動登録
-              </button>
-              <button id="exportBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>
-                エクスポート
-              </button>
-              <button id="printBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>
-                印刷
-              </button>
-              <button id="deleteAllBtn" class="button-secondary text-red-600 hover:bg-red-100" ${state.postcards.length === 0 ? 'disabled' : ''}>
-                全削除
-              </button>
+              <button id="toggleFormBtn" class="button-secondary">+ 手動登録</button>
+              <button id="exportBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
+              <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
+              <button id="printBackBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
+              <button id="deleteAllBtn" class="button-secondary text-red-600 hover:bg-red-100" ${state.postcards.length === 0 ? 'disabled' : ''}>全削除</button>
             </div>
 
-            <!-- 統計情報 -->
             <div class="pt-4 border-t border-slate-200 text-sm text-slate-600">
               <p>合計: <strong>${state.postcards.length}</strong> 件 | 表示中: <strong>${paginatedCards.length}</strong> 件</p>
             </div>
           </div>
         </div>
 
-        <!-- 手動登録フォーム -->
+        ${state.showSenderForm ? renderSenderForm() : ''}
         ${state.showForm ? renderFormPanel() : ''}
 
-        <!-- グリッド表示 -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 class="text-xl font-bold text-slate-800 mb-6 no-print">プレビュー</h2>
-          <div id="previewContainer" class="space-y-8">
-            ${paginatedCards.length > 0
-              ? renderPostcardGrid(paginatedCards)
-              : '<p class="text-slate-500 text-center w-full py-12">データがありません</p>'
-            }
-          </div>
+        <!-- 住所録一覧 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
+          <h2 class="text-xl font-bold text-slate-800 mb-6">住所録一覧</h2>
+          ${paginatedCards.length > 0
+            ? renderAddressTable(paginatedCards)
+            : '<p class="text-slate-500 text-center py-12">データがありません。CSVファイルをアップロードするか、手動登録してください。</p>'
+          }
         </div>
 
-        <!-- ページネーション -->
         ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
       </main>
 
-      <footer class="w-full bg-slate-100 border-t border-slate-200 mt-12 no-print">
-        <div class="max-w-6xl mx-auto px-6 py-4 text-center text-sm text-slate-600">
-          <p>&copy; 2024 ハガキ印刷システム. All rights reserved.</p>
-        </div>
-      </footer>
+      <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
+      <div id="printArea" class="print-only"></div>
     </div>
   `
 }
@@ -176,39 +151,94 @@ function getFilteredCards(): PostcardData[] {
   )
 }
 
-/**
- * グリッド表示
- */
-function renderPostcardGrid(postcards: PostcardData[]): string {
+function renderAddressTable(postcards: PostcardData[]): string {
+  const startIndex = (state.currentPage - 1) * state.pageSize
   return `
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      ${postcards.map(postcard => renderPostcardCard(postcard)).join('')}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b-2 border-slate-200 text-left">
+            <th class="py-3 px-2 w-10">#</th>
+            <th class="py-3 px-2">企業名</th>
+            <th class="py-3 px-2">名前</th>
+            <th class="py-3 px-2">郵便番号</th>
+            <th class="py-3 px-2">住所</th>
+            <th class="py-3 px-2">電話番号</th>
+            <th class="py-3 px-2">備考</th>
+            <th class="py-3 px-2 w-24">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${postcards.map((card, i) => `
+            <tr class="border-b border-slate-100 hover:bg-slate-50">
+              <td class="py-2 px-2 text-slate-400">${startIndex + i + 1}</td>
+              <td class="py-2 px-2 font-medium">${escapeHtml(card.companyName)}</td>
+              <td class="py-2 px-2">${escapeHtml(card.personName || '')}</td>
+              <td class="py-2 px-2 whitespace-nowrap">${escapeHtml(card.postalCode || '')}</td>
+              <td class="py-2 px-2">${escapeHtml(card.address)}</td>
+              <td class="py-2 px-2 whitespace-nowrap">${escapeHtml(card.phone || '')}</td>
+              <td class="py-2 px-2 text-slate-500">${escapeHtml(card.memo || '')}</td>
+              <td class="py-2 px-2">
+                <div class="flex gap-1">
+                  <button class="edit-btn text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${card.id}">編集</button>
+                  <button class="delete-btn text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${card.id}">削除</button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
     </div>
   `
 }
 
-/**
- * ハガキカード（プレビュー＋操作）
- */
-function renderPostcardCard(postcard: PostcardData): string {
+function escapeHtml(str: string): string {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
+function renderSenderForm(): string {
+  const s = state.senderInfo
   return `
-    <div class="flex flex-col">
-      ${renderPostcardPreview(postcard)}
-      <div class="bg-slate-50 border border-t-0 border-slate-200 rounded-b px-4 py-3 no-print space-y-2">
-        <div class="flex gap-2">
-          <button class="edit-btn flex-1 text-sm px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${postcard.id}">
-            編集
-          </button>
-          <button class="delete-btn flex-1 text-sm px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${postcard.id}">
-            削除
-          </button>
+    <div class="bg-green-50 rounded-lg shadow-md p-6 mb-8 border-2 border-green-200 no-print">
+      <h3 class="text-lg font-bold text-green-900 mb-4">差出人情報（裏面に印刷されます）</h3>
+      <form id="senderForm" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">企業名・氏名</label>
+            <input type="text" id="senderCompanyName" class="input-field" value="${escapeAttr(s.companyName)}" placeholder="株式会社○○" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">名前</label>
+            <input type="text" id="senderPersonName" class="input-field" value="${escapeAttr(s.personName)}" placeholder="山田 太郎" />
+          </div>
         </div>
-        <div class="text-xs text-slate-500">
-          登録: ${new Date(postcard.createdAt).toLocaleDateString('ja-JP')}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">郵便番号</label>
+            <input type="text" id="senderPostalCode" class="input-field" value="${escapeAttr(s.postalCode)}" placeholder="000-0000" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">電話番号</label>
+            <input type="text" id="senderPhone" class="input-field" value="${escapeAttr(s.phone)}" placeholder="03-0000-0000" />
+          </div>
         </div>
-      </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">住所</label>
+          <input type="text" id="senderAddress" class="input-field" value="${escapeAttr(s.address)}" placeholder="東京都○○区..." />
+        </div>
+        <div class="flex gap-2 pt-2">
+          <button type="submit" class="button-primary">保存</button>
+          <button type="button" id="cancelSenderBtn" class="button-secondary">閉じる</button>
+        </div>
+      </form>
     </div>
   `
+}
+
+function escapeAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /**
@@ -274,7 +304,7 @@ function renderFormPanel(): string {
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">
-              担当者名
+              名前
             </label>
             <input
               type="text"
@@ -291,16 +321,36 @@ function renderFormPanel(): string {
             <label class="block text-sm font-medium text-slate-700 mb-2">
               郵便番号 <span class="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              id="formPostalCode"
-              class="input-field"
-              placeholder="000-0000"
-              value="${editing?.postalCode || ''}"
-              required
-            />
-            <p class="text-xs text-slate-500 mt-1">XXX-XXXX形式（自動検索）</p>
-            <div id="prefectureInfo" class="text-xs text-blue-600 mt-1"></div>
+            <div class="relative">
+              <input
+                type="text"
+                id="formPostalCode"
+                class="input-field pr-10"
+                inputmode="numeric"
+                placeholder="000-0000"
+                maxlength="8"
+                value="${editing?.postalCode || ''}"
+                required
+              />
+              <div id="postalCodeSpinner" class="absolute right-3 top-1/2 -translate-y-1/2 hidden">
+                <svg class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+              </div>
+              <div id="postalCodeCheckmark" class="absolute right-3 top-1/2 -translate-y-1/2 hidden text-green-500 text-sm font-bold">✓</div>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">数字7桁で住所を自動入力</p>
+            <div id="prefectureInfo" class="text-xs mt-1"></div>
+            <div id="addressSuggestion" class="hidden mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+              <p class="text-sm text-green-800 mb-2">
+                <span class="font-medium">検索結果:</span> <span id="suggestedAddress"></span>
+              </p>
+              <div class="flex gap-2">
+                <button type="button" id="applySuggestionBtn" class="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">住所に反映</button>
+                <button type="button" id="dismissSuggestionBtn" class="text-xs px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300">閉じる</button>
+              </div>
+            </div>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -357,42 +407,33 @@ function renderFormPanel(): string {
   `
 }
 
-/**
- * ハガキプレビューのHTML生成
- */
-function renderPostcardPreview(postcard: PostcardData): string {
+function renderPostcardBack(): string {
   const year = new Date().getFullYear()
-  const japaneseYear = toJapaneseEra(year)
-  const mapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(postcard.address)}`
+  const nextYear = year + 1
+  const japaneseYear = toJapaneseEra(nextYear)
+  const s = state.senderInfo
+
+  const hasSender = s.companyName || s.personName || s.address
 
   return `
-    <div class="postcard-base flex flex-col justify-between" style="background-color: ${state.template.backgroundColor}; color: ${state.template.textColor}">
-      <!-- ハガキ上部 -->
-      <div class="pb-4">
-        <div class="text-center mb-4">
-          <p class="text-sm font-bold">${japaneseYear}</p>
+    <div class="postcard-back">
+      <div class="postcard-back-content">
+        <div class="postcard-back-greeting">
+          <p class="greeting-main">謹賀新年</p>
+          <p class="greeting-sub">旧年中は格別のお引き立てを賜り<br>厚く御礼申し上げます</p>
+          <p class="greeting-sub">本年も変わらぬご愛顧のほど<br>よろしくお願い申し上げます</p>
         </div>
-        <div class="text-center">
-          <p class="text-xs mb-2">新年のお喜びを申し上げます</p>
-        </div>
-      </div>
-
-      <!-- ハガキ下部：住所など -->
-      <div class="border-t pt-3">
-        <div class="grid grid-cols-2 gap-4 text-xs">
-          <div>
-            <p class="font-bold mb-1">〒 ${postcard.postalCode || '000-0000'}</p>
-            <p>
-              <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">
-                ${postcard.address}
-              </a>
-            </p>
-          </div>
-          <div class="text-right">
-            <p class="font-bold text-xs">${postcard.companyName}</p>
-            <p class="font-bold">${postcard.personName}</p>
-            <p class="text-xs">${postcard.phone || ''}</p>
-          </div>
+        <div class="postcard-back-footer">
+          <p class="greeting-year">${japaneseYear} 元旦</p>
+          ${hasSender ? `
+            <div class="sender-info">
+              ${s.postalCode ? `<p class="sender-postal">〒${s.postalCode}</p>` : ''}
+              ${s.address ? `<p class="sender-address">${escapeHtml(s.address)}</p>` : ''}
+              ${s.companyName ? `<p class="sender-company">${escapeHtml(s.companyName)}</p>` : ''}
+              ${s.personName ? `<p class="sender-person">${escapeHtml(s.personName)}</p>` : ''}
+              ${s.phone ? `<p class="sender-phone">TEL: ${escapeHtml(s.phone)}</p>` : ''}
+            </div>
+          ` : ''}
         </div>
       </div>
     </div>
@@ -404,7 +445,7 @@ function renderPostcardPreview(postcard: PostcardData): string {
  */
 function bindEvents(): void {
   // ファイルアップロード
-  const uploadBtn = getElement('uploadBtn')
+  const uploadBtn = getElement('uploadBtn') as HTMLButtonElement
   const csvFile = getElement('csvFile') as HTMLInputElement
   uploadBtn.addEventListener('click', handleCSVUpload)
   csvFile.addEventListener('change', () => {
@@ -495,41 +536,41 @@ function bindEvents(): void {
   // 郵便番号の自動フォーマットと検索
   const postalCodeInput = document.getElementById('formPostalCode') as HTMLInputElement
   if (postalCodeInput) {
-    postalCodeInput.addEventListener('input', async (e) => {
-      const input = e.target as HTMLInputElement
-      const prefInfo = document.getElementById('prefectureInfo')
+    postalCodeInput.addEventListener('input', async () => {
+      handlePostalCodeInput(postalCodeInput)
+    })
 
-      // 全角数字を半角に変換
-      let value = input.value
+    postalCodeInput.addEventListener('keydown', (e) => {
+      // ハイフンの直後でバックスペースを押した場合、ハイフンと前の数字を削除
+      if (e.key === 'Backspace') {
+        const pos = postalCodeInput.selectionStart ?? 0
+        if (pos === 4 && postalCodeInput.value[3] === '-') {
+          e.preventDefault()
+          const digits = postalCodeInput.value.replace(/\D/g, '')
+          const newDigits = digits.slice(0, 2)
+          postalCodeInput.value = newDigits
+          postalCodeInput.setSelectionRange(2, 2)
+          resetPostalCodeUI()
+        }
+      }
+    })
+
+    postalCodeInput.addEventListener('paste', (e) => {
+      e.preventDefault()
+      const pasted = e.clipboardData?.getData('text') || ''
+      const digits = pasted
         .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
         .replace(/\D/g, '')
+        .slice(0, 7)
 
-      if (value.length > 7) {
-        value = value.slice(0, 7)
-      }
-
-      // 入力がない場合はメッセージをクリア
-      if (value.length === 0) {
-        input.value = ''
-        if (prefInfo) prefInfo.textContent = ''
-        return
-      }
-
-      // 3文字以上で自動的にハイフンを挿入
-      if (value.length >= 3) {
-        const formatted = `${value.slice(0, 3)}-${value.slice(3)}`
-        input.value = formatted
-
-        // 7文字完成したら検索
-        if (value.length === 7) {
-          await handlePostalCodeSearch(formatted)
-        } else {
-          // 7文字未満の場合はメッセージをクリア（入力途中）
-          if (prefInfo) prefInfo.textContent = ''
-        }
+      if (digits.length >= 3) {
+        postalCodeInput.value = `${digits.slice(0, 3)}-${digits.slice(3)}`
       } else {
-        input.value = value
-        if (prefInfo) prefInfo.textContent = ''
+        postalCodeInput.value = digits
+      }
+
+      if (digits.length === 7) {
+        handlePostalCodeSearch(postalCodeInput.value)
       }
     })
   }
@@ -543,14 +584,51 @@ function bindEvents(): void {
     })
   }
 
-  // エクスポート・削除・印刷
+  // 差出人設定
+  const senderInfoBtn = document.getElementById('senderInfoBtn')
+  if (senderInfoBtn) {
+    senderInfoBtn.addEventListener('click', () => {
+      state.showSenderForm = !state.showSenderForm
+      render()
+    })
+  }
+
+  const senderForm = document.getElementById('senderForm') as HTMLFormElement
+  if (senderForm) {
+    senderForm.addEventListener('submit', (e) => {
+      e.preventDefault()
+      state.senderInfo = {
+        companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
+        personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
+        postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
+        address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
+        phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+      }
+      saveSenderInfo(state.senderInfo)
+      state.showSenderForm = false
+      render()
+      alert('差出人情報を保存しました')
+    })
+  }
+
+  const cancelSenderBtn = document.getElementById('cancelSenderBtn')
+  if (cancelSenderBtn) {
+    cancelSenderBtn.addEventListener('click', () => {
+      state.showSenderForm = false
+      render()
+    })
+  }
+
+  // エクスポート・削除・裏面印刷
   const exportBtn = getElement('exportBtn')
   const deleteAllBtn = getElement('deleteAllBtn')
-  const printBtn = getElement('printBtn')
+  const printBackBtn = document.getElementById('printBackBtn')
 
   exportBtn.addEventListener('click', handleExport)
   deleteAllBtn.addEventListener('click', handleDeleteAll)
-  printBtn.addEventListener('click', handlePrint)
+  if (printBackBtn) {
+    printBackBtn.addEventListener('click', handlePrintBack)
+  }
 }
 
 /**
@@ -573,7 +651,7 @@ async function handleCSVUpload(): Promise<void> {
     // パースしたデータをPostcardData型に変換
     const newCards = data.map((row) => ({
       companyName: row.companyName || row.企業名 || '',
-      personName: row.personName || row.担当者名 || '',
+      personName: row.personName || row.名前 || '',
       address: row.address || row.住所 || '',
       memo: row.memo || row.備考 || '',
       postalCode: normalizePostalCode(row.postalCode || row.郵便番号 || '') || '',
@@ -730,7 +808,7 @@ async function handleExport(): Promise<void> {
   try {
     const data = state.postcards.map(card => ({
       '企業名': card.companyName,
-      '担当者名': card.personName || '',
+      '名前': card.personName || '',
       '郵便番号': card.postalCode || '',
       '住所': card.address,
       '備考': card.memo || '',
@@ -755,11 +833,97 @@ async function handleExport(): Promise<void> {
   }
 }
 
+function handlePrintBack(): void {
+  const printArea = document.getElementById('printArea')
+  if (!printArea) return
+
+  const count = state.postcards.length
+  if (count === 0) {
+    alert('印刷するデータがありません')
+    return
+  }
+
+  const cards: string[] = []
+  for (let i = 0; i < count; i++) {
+    cards.push(renderPostcardBack())
+  }
+  printArea.innerHTML = cards.join('')
+
+  requestAnimationFrame(() => {
+    window.print()
+  })
+}
+
 /**
- * 印刷処理
+ * 郵便番号入力のフォーマット処理
  */
-function handlePrint(): void {
-  window.print()
+function handlePostalCodeInput(input: HTMLInputElement): void {
+  const cursorPos = input.selectionStart ?? 0
+
+  // 全角数字を半角に変換し、数字以外を除去
+  let digits = input.value
+    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/\D/g, '')
+
+  if (digits.length > 7) {
+    digits = digits.slice(0, 7)
+  }
+
+  if (digits.length === 0) {
+    input.value = ''
+    resetPostalCodeUI()
+    return
+  }
+
+  // フォーマット適用
+  let formatted: string
+  if (digits.length >= 3) {
+    formatted = `${digits.slice(0, 3)}-${digits.slice(3)}`
+  } else {
+    formatted = digits
+  }
+
+  // カーソル位置を計算（ハイフン挿入分を補正）
+  const oldValue = input.value
+  input.value = formatted
+
+  let newCursorPos = cursorPos
+  if (oldValue.length < formatted.length && cursorPos >= 3 && digits.length >= 3) {
+    // ハイフンが挿入された場合、カーソルをその分進める
+    if (!oldValue.includes('-') && formatted.includes('-')) {
+      newCursorPos = cursorPos + 1
+    }
+  }
+  newCursorPos = Math.min(newCursorPos, formatted.length)
+  input.setSelectionRange(newCursorPos, newCursorPos)
+
+  if (digits.length === 7) {
+    handlePostalCodeSearch(formatted)
+  } else {
+    resetPostalCodeUI()
+  }
+}
+
+/**
+ * 郵便番号UIをリセット
+ */
+function resetPostalCodeUI(): void {
+  const prefInfo = document.getElementById('prefectureInfo')
+  const spinner = document.getElementById('postalCodeSpinner')
+  const checkmark = document.getElementById('postalCodeCheckmark')
+  const suggestion = document.getElementById('addressSuggestion')
+  const postalInput = document.getElementById('formPostalCode') as HTMLInputElement | null
+
+  if (prefInfo) {
+    prefInfo.textContent = ''
+    prefInfo.className = 'text-xs mt-1'
+  }
+  if (spinner) spinner.classList.add('hidden')
+  if (checkmark) checkmark.classList.add('hidden')
+  if (suggestion) suggestion.classList.add('hidden')
+  if (postalInput) {
+    postalInput.classList.remove('border-green-500', 'border-red-500', 'ring-green-200', 'ring-red-200', 'ring-2')
+  }
 }
 
 /**
@@ -768,27 +932,83 @@ function handlePrint(): void {
 async function handlePostalCodeSearch(postalCode: string): Promise<void> {
   const prefInfo = document.getElementById('prefectureInfo')
   const addressInput = document.getElementById('formAddress') as HTMLInputElement
+  const spinner = document.getElementById('postalCodeSpinner')
+  const checkmark = document.getElementById('postalCodeCheckmark')
+  const suggestion = document.getElementById('addressSuggestion')
+  const suggestedAddr = document.getElementById('suggestedAddress')
+  const postalInput = document.getElementById('formPostalCode') as HTMLInputElement | null
+
+  // ローディング表示
+  if (spinner) spinner.classList.remove('hidden')
+  if (checkmark) checkmark.classList.add('hidden')
+  if (postalInput) {
+    postalInput.classList.remove('border-green-500', 'border-red-500', 'ring-green-200', 'ring-red-200', 'ring-2')
+  }
 
   try {
     const result = await searchAddressByZipcode(postalCode)
 
-    if (prefInfo) {
-      if (result) {
-        prefInfo.textContent = `✓ ${result.prefecture}が確認されました`
+    if (spinner) spinner.classList.add('hidden')
 
-        // 住所フィールドに都道府県・市区町村・町名を自動入力
-        if (addressInput && addressInput.value.trim() === '') {
-          const fullAddress = `${result.prefecture}${result.city}${result.town}`
-          addressInput.value = fullAddress
+    if (result) {
+      const fullAddress = `${result.prefecture}${result.city}${result.town}`
+
+      // 成功表示
+      if (checkmark) checkmark.classList.remove('hidden')
+      if (postalInput) {
+        postalInput.classList.add('border-green-500', 'ring-green-200', 'ring-2')
+      }
+      if (prefInfo) {
+        prefInfo.textContent = `${result.prefecture} ${result.city} ${result.town}`
+        prefInfo.className = 'text-xs mt-1 text-green-600 font-medium'
+      }
+
+      // 住所フィールドが空なら直接入力、値があればサジェスト表示
+      if (addressInput && addressInput.value.trim() === '') {
+        addressInput.value = fullAddress
+        addressInput.classList.add('bg-green-50')
+        setTimeout(() => addressInput.classList.remove('bg-green-50'), 1500)
+      } else if (addressInput && addressInput.value.trim() !== fullAddress) {
+        // 既に住所があり、検索結果と異なる場合はサジェスト表示
+        if (suggestion && suggestedAddr) {
+          suggestedAddr.textContent = fullAddress
+          suggestion.classList.remove('hidden')
+
+          const applyBtn = document.getElementById('applySuggestionBtn')
+          const dismissBtn = document.getElementById('dismissSuggestionBtn')
+
+          const applyHandler = () => {
+            addressInput.value = fullAddress
+            addressInput.classList.add('bg-green-50')
+            setTimeout(() => addressInput.classList.remove('bg-green-50'), 1500)
+            suggestion.classList.add('hidden')
+            applyBtn?.removeEventListener('click', applyHandler)
+          }
+          const dismissHandler = () => {
+            suggestion.classList.add('hidden')
+            dismissBtn?.removeEventListener('click', dismissHandler)
+          }
+
+          applyBtn?.addEventListener('click', applyHandler)
+          dismissBtn?.addEventListener('click', dismissHandler)
         }
-      } else {
-        prefInfo.textContent = '郵便番号を確認してください'
+      }
+    } else {
+      // エラー表示
+      if (postalInput) {
+        postalInput.classList.add('border-red-500', 'ring-red-200', 'ring-2')
+      }
+      if (prefInfo) {
+        prefInfo.textContent = '該当する住所が見つかりません'
+        prefInfo.className = 'text-xs mt-1 text-red-500'
       }
     }
   } catch (error) {
     console.error('郵便番号検索エラー:', error)
+    if (spinner) spinner.classList.add('hidden')
     if (prefInfo) {
-      prefInfo.textContent = '郵便番号を確認してください'
+      prefInfo.textContent = '検索に失敗しました。もう一度お試しください'
+      prefInfo.className = 'text-xs mt-1 text-red-500'
     }
   }
 }

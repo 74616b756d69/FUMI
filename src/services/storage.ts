@@ -192,10 +192,10 @@ export class PostcardStorage {
     const lowerQuery = query.toLowerCase()
 
     return allCards.filter(card =>
-      card.name.toLowerCase().includes(lowerQuery) ||
+      card.companyName.toLowerCase().includes(lowerQuery) ||
+      card.personName?.toLowerCase().includes(lowerQuery) ||
       card.address.toLowerCase().includes(lowerQuery) ||
-      card.postalCode?.includes(query) ||
-      card.message.toLowerCase().includes(lowerQuery)
+      card.postalCode?.includes(query)
     )
   }
 

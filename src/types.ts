@@ -22,6 +22,14 @@ export interface PostcardTemplate {
   textColor: string;
 }
 
+export interface SenderInfo {
+  companyName: string;
+  personName: string;
+  postalCode: string;
+  address: string;
+  phone: string;
+}
+
 export interface AppState {
   postcards: PostcardData[];
   template: PostcardTemplate;
@@ -32,4 +40,7 @@ export interface AppState {
   filterQuery: string;
   showForm: boolean;
   editingId?: string;
+  currentView: 'list' | 'preview';
+  showSenderForm: boolean;
+  senderInfo: SenderInfo;
 }
