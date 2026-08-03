@@ -121,7 +121,9 @@ const state: AppState = {
   senderInfo: loadSenderInfo(),
   showCalibration: false,
   calibration: loadCalibration(),
-  recentSenders: loadRecentSenders()
+  recentSenders: loadRecentSenders(),
+  showPreview: false,
+  previewMode: 'front'
 }
 
 /**
@@ -257,6 +259,7 @@ function renderMainUI(): string {
                 ` : ''}
               </div>
               <button id="calibrationBtn" class="button-secondary">位置補正</button>
+              <button id="previewBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>プレビュー</button>
               <button id="printFrontBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
               <button id="printBackBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
               <button id="pdfExportBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
@@ -271,6 +274,7 @@ function renderMainUI(): string {
 
         ${state.showSenderForm ? renderSenderForm() : ''}
         ${state.showCalibration ? renderCalibrationPanel() : ''}
+        ${state.showPreview ? renderPreviewPanel() : ''}
         ${state.showForm ? renderFormPanel() : ''}
 
         <!-- 住所録一覧 -->
@@ -459,6 +463,42 @@ function renderPagination(totalPages: number): string {
         <button id="nextBtn" class="button-secondary" ${state.currentPage === totalPages ? 'disabled' : ''}>
           次へ →
         </button>
+      </div>
+    </div>
+  `
+}
+
+function renderPreviewPanel(): string {
+  if (!state.showPreview || state.postcards.length === 0) return ''
+
+  const previewCards = state.postcards.slice(0, 3)
+
+  return `
+    <div class="bg-slate-900 rounded-lg shadow-lg p-6 mb-8 border-2 border-slate-700 no-print">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-lg font-bold text-white">プレビュー（最初の${Math.min(3, state.postcards.length)}枚）</h3>
+        <button id="closePreviewBtn" class="text-white hover:text-gray-300" aria-label="Close preview">✕</button>
+      </div>
+
+      <div class="flex gap-4 overflow-x-auto pb-4" style="scroll-behavior: smooth;">
+        ${previewCards.map((card) => {
+          const scale = 0.35
+          const preview = state.previewMode === 'front'
+            ? renderPostcardFront(card)
+            : renderPostcardBack()
+
+          return `
+            <div class="flex-shrink-0" style="transform: scale(${scale}); transform-origin: top left;">
+              ${preview}
+            </div>
+          `
+        }).join('')}
+      </div>
+
+      <div class="flex gap-2 mt-4">
+        <button id="previewFrontBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.previewMode === 'front' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">宛名面</button>
+        <button id="previewBackBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.previewMode === 'back' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">裏面</button>
+        <button id="closePreviewBtn2" class="ml-auto px-4 py-2 bg-slate-700 text-white rounded-md hover:bg-slate-600">閉じる</button>
       </div>
     </div>
   `
@@ -1074,12 +1114,13 @@ function bindEvents(): void {
     })
   }
 
-  // エクスポート・削除・印刷・PDF出力
+  // エクスポート・削除・印刷・PDF出力・プレビュー
   const exportBtn = getElement('exportBtn')
   const exportAllBtn = document.getElementById('exportAllBtn')
   const exportBusinessBtn = document.getElementById('exportBusinessBtn')
   const exportPrivateBtn = document.getElementById('exportPrivateBtn')
   const deleteAllBtn = getElement('deleteAllBtn')
+  const previewBtn = document.getElementById('previewBtn')
   const printBackBtn = document.getElementById('printBackBtn')
   const printFrontBtn = document.getElementById('printFrontBtn')
   const pdfExportBtn = document.getElementById('pdfExportBtn')
@@ -1100,6 +1141,17 @@ function bindEvents(): void {
   }
 
   deleteAllBtn.addEventListener('click', handleDeleteAll)
+
+  if (previewBtn) {
+    previewBtn.addEventListener('click', () => {
+      state.showPreview = !state.showPreview
+      if (state.showPreview) {
+        state.previewMode = 'front'
+      }
+      render()
+    })
+  }
+
   if (printBackBtn) {
     printBackBtn.addEventListener('click', handlePrintBack)
   }
@@ -1109,6 +1161,30 @@ function bindEvents(): void {
   if (pdfExportBtn) {
     pdfExportBtn.addEventListener('click', handlePdfExport)
   }
+
+  // プレビューモード切り替え
+  const previewFrontBtn = document.getElementById('previewFrontBtn')
+  const previewBackBtn = document.getElementById('previewBackBtn')
+  const closePreviewBtns = document.querySelectorAll('#closePreviewBtn, #closePreviewBtn2')
+
+  if (previewFrontBtn) {
+    previewFrontBtn.addEventListener('click', () => {
+      state.previewMode = 'front'
+      render()
+    })
+  }
+  if (previewBackBtn) {
+    previewBackBtn.addEventListener('click', () => {
+      state.previewMode = 'back'
+      render()
+    })
+  }
+  closePreviewBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.showPreview = false
+      render()
+    })
+  })
 }
 
 /**

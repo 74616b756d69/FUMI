@@ -254,30 +254,51 @@
   @page {
     size: 100mm 148mm;
     margin: 0;
+    padding: 0;
   }
 
-  body {
+  * {
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 100mm !important;
+    height: 148mm !important;
     margin: 0 !important;
     padding: 0 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    color-adjust: exact;
   }
 
   .no-print,
   header,
   footer,
-  main {
+  main,
+  .app {
     display: none !important;
+  }
+
+  #printArea {
+    display: block !important;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
   }
 
   .print-only {
     display: block !important;
+    margin: 0;
+    padding: 0;
   }
 
   .postcard-back,
   .postcard-front {
-    width: 100mm;
-    height: 148mm;
+    width: 100mm !important;
+    height: 148mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
     page-break-after: always;
     page-break-inside: avoid;
     border: none;
@@ -285,11 +306,46 @@
     position: relative;
     overflow: hidden;
     transform: translate(var(--offset-x, 0mm), var(--offset-y, 0mm));
+    display: block !important;
+    background: white;
   }
 
   .postcard-back:last-child,
   .postcard-front:last-child {
     page-break-after: auto;
+  }
+
+  /* マージン・パディング厳密化 */
+  .postcard-back-content {
+    width: 100% !important;
+    height: 100% !important;
+    padding: 12mm 8mm 8mm 8mm !important;
+  }
+
+  .postcard-front-zipcode {
+    top: 8mm !important;
+    right: 6mm !important;
+  }
+
+  .postcard-front-address-area {
+    top: 25mm !important;
+    bottom: 30mm !important;
+    right: 8mm !important;
+    left: 45mm !important;
+  }
+
+  .postcard-front-name-area {
+    top: 30mm !important;
+    bottom: 30mm !important;
+    left: 25mm !important;
+    right: 25mm !important;
+  }
+
+  .postcard-front-sender {
+    bottom: 8mm !important;
+    left: 5mm !important;
+    top: 80mm !important;
+    width: 22mm !important;
   }
 }
 
