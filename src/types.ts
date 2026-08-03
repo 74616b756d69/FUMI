@@ -57,11 +57,4 @@ export interface AppState {
   senderInfo: SenderInfo;
   showCalibration: boolean;
   calibration: CalibrationSettings;
-  searchHistory: string[];
-  recentSenders: SenderInfo[];
-}
-
-export interface HistoryState {
-  postcards: PostcardData[];
-  timestamp: number;
 }
