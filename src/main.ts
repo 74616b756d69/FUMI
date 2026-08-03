@@ -8,6 +8,13 @@ import { generatePostcardPdf } from './utils/pdf'
 
 const SENDER_STORAGE_KEY = 'postcard-app-sender-info'
 const CALIBRATION_STORAGE_KEY = 'postcard-app-calibration'
+const SEARCH_HISTORY_KEY = 'postcard-app-search-history'
+const RECENT_SENDERS_KEY = 'postcard-app-recent-senders'
+const MAX_HISTORY_ITEMS = 50
+const MAX_UNDO_STEPS = 20
+
+let undoStack: PostcardData[][] = []
+let redoStack: PostcardData[][] = []
 
 function loadSenderInfo(): SenderInfo {
   try {
@@ -19,6 +26,7 @@ function loadSenderInfo(): SenderInfo {
 
 function saveSenderInfo(info: SenderInfo): void {
   localStorage.setItem(SENDER_STORAGE_KEY, JSON.stringify(info))
+  addToRecentSenders(info)
 }
 
 function loadCalibration(): CalibrationSettings {
@@ -31,6 +39,59 @@ function loadCalibration(): CalibrationSettings {
 
 function saveCalibration(cal: CalibrationSettings): void {
   localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(cal))
+}
+
+function loadSearchHistory(): string[] {
+  try {
+    const saved = localStorage.getItem(SEARCH_HISTORY_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return []
+}
+
+function saveSearchHistory(history: string[]): void {
+  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY_ITEMS)))
+}
+
+function loadRecentSenders(): SenderInfo[] {
+  try {
+    const saved = localStorage.getItem(RECENT_SENDERS_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return []
+}
+
+function saveRecentSenders(senders: SenderInfo[]): void {
+  localStorage.setItem(RECENT_SENDERS_KEY, JSON.stringify(senders.slice(0, 10)))
+}
+
+function addToRecentSenders(sender: SenderInfo): void {
+  const senders = loadRecentSenders()
+  const filtered = senders.filter(s => s.companyName !== sender.companyName || s.personName !== sender.personName)
+  filtered.unshift(sender)
+  saveRecentSenders(filtered)
+}
+
+function pushUndoState(postcards: PostcardData[]): void {
+  undoStack.push(JSON.parse(JSON.stringify(postcards)))
+  if (undoStack.length > MAX_UNDO_STEPS) {
+    undoStack.shift()
+  }
+  redoStack = []
+}
+
+function performUndo(): boolean {
+  if (undoStack.length === 0) return false
+  redoStack.push(JSON.parse(JSON.stringify(state.postcards)))
+  state.postcards = undoStack.pop() || []
+  return true
+}
+
+function performRedo(): boolean {
+  if (redoStack.length === 0) return false
+  undoStack.push(JSON.parse(JSON.stringify(state.postcards)))
+  state.postcards = redoStack.pop() || []
+  return true
 }
 
 const state: AppState = {
@@ -56,7 +117,9 @@ const state: AppState = {
   showExportMenu: false,
   senderInfo: loadSenderInfo(),
   showCalibration: false,
-  calibration: loadCalibration()
+  calibration: loadCalibration(),
+  searchHistory: loadSearchHistory(),
+  recentSenders: loadRecentSenders()
 }
 
 /**
@@ -76,13 +139,50 @@ async function initApp(): Promise<void> {
     await storage.init()
     const allCards = await storage.getAll()
     state.postcards = allCards
+    pushUndoState([])
   } catch (error) {
     console.error('Failed to initialize storage:', error)
+    showError('アプリケーション初期化エラー', '初期化処理中にエラーが発生しました')
   }
 
   const app = getElement('app')
   app.innerHTML = renderMainUI()
   bindEvents()
+  setupKeyboardShortcuts()
+}
+
+function setupKeyboardShortcuts(): void {
+  document.addEventListener('keydown', (e) => {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+    const modifier = isMac ? e.metaKey : e.ctrlKey
+
+    if (modifier && e.key === 's') {
+      e.preventDefault()
+      const form = document.getElementById('postcardForm')
+      if (form) {
+        form.dispatchEvent(new Event('submit'))
+      }
+    } else if (modifier && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault()
+      if (performUndo()) {
+        render()
+      }
+    } else if ((modifier && e.shiftKey && e.key === 'Z') || (modifier && e.shiftKey && e.key === 'z')) {
+      e.preventDefault()
+      if (performRedo()) {
+        render()
+      }
+    }
+  })
+}
+
+function showError(title: string, message: string, isSuccess: boolean = false): void {
+  const errorDiv = document.createElement('div')
+  const bgClass = isSuccess ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'
+  errorDiv.className = `fixed top-4 right-4 ${bgClass} border px-4 py-3 rounded shadow-lg z-50 max-w-sm`
+  errorDiv.innerHTML = `<strong>${title}</strong><br>${message}`
+  document.body.appendChild(errorDiv)
+  setTimeout(() => errorDiv.remove(), 5000)
 }
 
 function renderDropZone(): string {
@@ -729,8 +829,16 @@ function bindEvents(): void {
   const searchFieldSelect = document.getElementById('searchFieldSelect') as HTMLSelectElement
 
   searchInput.addEventListener('input', (e) => {
-    state.filterQuery = (e.target as HTMLInputElement).value
+    const query = (e.target as HTMLInputElement).value
+    state.filterQuery = query
     state.currentPage = 1
+    if (query.trim() && !state.searchHistory.includes(query)) {
+      state.searchHistory.unshift(query)
+      if (state.searchHistory.length > MAX_HISTORY_ITEMS) {
+        state.searchHistory.pop()
+      }
+      saveSearchHistory(state.searchHistory)
+    }
     render()
   })
 
@@ -871,17 +979,21 @@ function bindEvents(): void {
   if (senderForm) {
     senderForm.addEventListener('submit', (e) => {
       e.preventDefault()
-      state.senderInfo = {
-        companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
-        personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
-        postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
-        address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
-        phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+      try {
+        state.senderInfo = {
+          companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
+          personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
+          postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
+          address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
+          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+        }
+        saveSenderInfo(state.senderInfo)
+        state.showSenderForm = false
+        render()
+        showError('成功', '差出人情報を保存しました', true)
+      } catch (error) {
+        showError('保存エラー', `差出人情報の保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
       }
-      saveSenderInfo(state.senderInfo)
-      state.showSenderForm = false
-      render()
-      alert('差出人情報を保存しました')
     })
   }
 
@@ -922,8 +1034,12 @@ function bindEvents(): void {
   const calSaveBtn = document.getElementById('calSaveBtn')
   if (calSaveBtn) {
     calSaveBtn.addEventListener('click', () => {
-      saveCalibration(state.calibration)
-      alert(`位置補正を保存しました（X: ${state.calibration.offsetX.toFixed(1)}mm, Y: ${state.calibration.offsetY.toFixed(1)}mm）`)
+      try {
+        saveCalibration(state.calibration)
+        showError('成功', `位置補正を保存しました（X: ${state.calibration.offsetX.toFixed(1)}mm, Y: ${state.calibration.offsetY.toFixed(1)}mm）`, true)
+      } catch (error) {
+        showError('保存エラー', `キャリブレーション設定の保存に失敗しました`)
+      }
     })
   }
 
@@ -987,8 +1103,17 @@ function bindEvents(): void {
 async function processCSVFile(file: File): Promise<void> {
   try {
     state.isLoading = true
+
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error('ファイルサイズが大きすぎます（最大10MB）')
+    }
+
     const text = await file.text()
     const data = parseCSV(text)
+
+    if (data.length === 0) {
+      throw new Error('CSVファイルが空です')
+    }
 
     const newCards = data.map((row) => {
       const prefecture = row['都道府県'] || ''
@@ -1008,19 +1133,20 @@ async function processCSVFile(file: File): Promise<void> {
       }
     })
 
+    pushUndoState(state.postcards)
     await storage.bulkInsert(newCards)
     const allCards = await storage.getAll()
     state.postcards = allCards
     state.currentPage = 1
     state.filterQuery = ''
 
-    alert(`${newCards.length}件のハガキデータを追加しました`)
+    showError('成功', `${newCards.length}件のハガキデータを追加しました`, true)
     const csvFile = document.getElementById('csvFile') as HTMLInputElement | null
     if (csvFile) csvFile.value = ''
     render()
   } catch (error) {
     console.error('CSVパース処理でエラーが発生しました:', error)
-    alert('CSVファイルの処理に失敗しました')
+    showError('CSVインポートエラー', `CSVファイルの処理に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
   } finally {
     state.isLoading = false
   }
@@ -1062,6 +1188,8 @@ async function handleFormSubmit(e: Event): Promise<void> {
     state.isLoading = true
     const normalized = normalizePostalCode(postalCode) || postalCode
 
+    pushUndoState(state.postcards)
+
     if (state.editingId) {
       await storage.update(state.editingId, {
         category,
@@ -1096,7 +1224,7 @@ async function handleFormSubmit(e: Event): Promise<void> {
     render()
   } catch (error) {
     console.error('フォーム処理でエラーが発生しました:', error)
-    alert('処理に失敗しました')
+    showError('保存エラー', `フォーム処理中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
   } finally {
     state.isLoading = false
   }
@@ -1108,6 +1236,8 @@ async function handleFormSubmit(e: Event): Promise<void> {
 async function handleDelete(id: string): Promise<void> {
   try {
     state.isLoading = true
+    pushUndoState(state.postcards)
+
     await storage.delete(id)
     const allCards = await storage.getAll()
     state.postcards = allCards
@@ -1125,7 +1255,7 @@ async function handleDelete(id: string): Promise<void> {
     render()
   } catch (error) {
     console.error('削除処理でエラーが発生しました:', error)
-    alert('削除に失敗しました')
+    showError('削除エラー', `削除中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
   } finally {
     state.isLoading = false
   }
@@ -1135,12 +1265,14 @@ async function handleDelete(id: string): Promise<void> {
  * 全削除
  */
 async function handleDeleteAll(): Promise<void> {
-  if (!confirm('すべてのハガキを削除しますか？この操作は取り消せません。')) {
+  if (!confirm('すべてのハガキを削除しますか？Cmd/Ctrl+Zで元に戻すことができます。')) {
     return
   }
 
   try {
     state.isLoading = true
+    pushUndoState(state.postcards)
+
     await storage.clear()
     state.postcards = []
     state.currentPage = 1
@@ -1148,7 +1280,7 @@ async function handleDeleteAll(): Promise<void> {
     render()
   } catch (error) {
     console.error('全削除処理でエラーが発生しました:', error)
-    alert('削除に失敗しました')
+    showError('削除エラー', `全削除中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
   } finally {
     state.isLoading = false
   }
@@ -1196,10 +1328,11 @@ async function handleExport(category?: string): Promise<void> {
 
     URL.revokeObjectURL(url)
     state.showExportMenu = false
+    showError('成功', `${data.length}件のデータをCSVでエクスポートしました`, true)
     render()
   } catch (error) {
     console.error('エクスポート処理でエラーが発生しました:', error)
-    alert('エクスポートに失敗しました')
+    showError('エクスポートエラー', `エクスポートに失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
   }
 }
 
