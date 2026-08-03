@@ -27,11 +27,14 @@ export interface PostcardTemplate {
 }
 
 export interface SenderInfo {
+  id?: string;
+  name?: string;
   companyName: string;
   personName: string;
   postalCode: string;
   address: string;
   phone: string;
+  createdAt?: number;
 }
 
 export interface CalibrationSettings {

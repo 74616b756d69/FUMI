@@ -216,26 +216,100 @@ function renderMainUI(): string {
   )
 
   return `
-    <div class="app bg-gray-50 min-h-screen">
-      <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
-        <div class="max-w-6xl mx-auto px-6 py-6">
-          <h1 class="text-3xl font-bold text-blue-900 mb-2">Fumi</h1>
+    <div class="app bg-gray-50 min-h-screen flex flex-col md:flex-row">
+      <!-- サイドバー -->
+      <aside class="w-full md:w-64 bg-white border-r border-slate-200 p-4 md:min-h-screen no-print">
+        <div class="space-y-6">
+          <!-- ヘッダー -->
+          <div>
+            <h1 class="text-2xl font-bold text-blue-900">Fumi</h1>
+            <p class="text-xs text-slate-500">宛名印刷アプリ</p>
+          </div>
+
+          <!-- クイックアクション -->
+          <div class="space-y-2">
+            <h3 class="text-sm font-semibold text-slate-700">操作</h3>
+            <button id="sidebarUndoBtn" class="w-full px-3 py-2 text-sm text-left bg-blue-50 hover:bg-blue-100 rounded text-slate-700 transition" ${undoStack.length === 0 ? 'disabled' : ''}>
+              ↶ さかのぼる (${undoStack.length})
+            </button>
+            <button id="sidebarRedoBtn" class="w-full px-3 py-2 text-sm text-left bg-blue-50 hover:bg-blue-100 rounded text-slate-700 transition" ${redoStack.length === 0 ? 'disabled' : ''}>
+              ↷ やり直す (${redoStack.length})
+            </button>
+          </div>
+
+          <!-- よく使う差出人 -->
+          <div class="space-y-2">
+            <h3 class="text-sm font-semibold text-slate-700">よく使う差出人</h3>
+            ${state.recentSenders.length > 0 ? `
+              <div class="space-y-1 max-h-48 overflow-y-auto">
+                ${state.recentSenders.map((sender, idx) => `
+                  <button class="recent-sender-btn w-full px-2 py-2 text-xs text-left bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 transition" data-index="${idx}">
+                    <div class="font-medium text-slate-800 truncate">${escapeHtml(sender.personName || sender.companyName)}</div>
+                    <div class="text-slate-500 truncate">${escapeHtml(sender.companyName)}</div>
+                  </button>
+                `).join('')}
+              </div>
+            ` : `
+              <p class="text-xs text-slate-500">最近使った差出人はまだありません</p>
+            `}
+          </div>
+
+          <!-- 検索履歴 -->
+          <div class="space-y-2">
+            <h3 class="text-sm font-semibold text-slate-700">検索履歴</h3>
+            ${state.searchHistory.length > 0 ? `
+              <div class="space-y-1 max-h-32 overflow-y-auto">
+                ${state.searchHistory.slice(0, 5).map(keyword => `
+                  <button class="search-history-btn w-full px-2 py-1 text-xs text-left bg-slate-50 hover:bg-slate-100 rounded text-slate-600 transition">
+                    🔍 ${escapeHtml(keyword)}
+                  </button>
+                `).join('')}
+              </div>
+            ` : `
+              <p class="text-xs text-slate-500">検索履歴はまだありません</p>
+            `}
+          </div>
+
+          <!-- データ統計 -->
+          <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-1">
+            <div class="text-xs text-slate-600">
+              <div>合計: <span class="font-bold text-blue-900">${state.postcards.length}</span> 件</div>
+              <div>業務用: <span class="font-bold">${state.postcards.filter(p => p.category === 'business').length}</span></div>
+              <div>プライベート: <span class="font-bold">${state.postcards.filter(p => p.category === 'private').length}</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print md:hidden">
+        <div class="px-6 py-4">
+          <div class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-blue-900">Fumi</h1>
+            <button id="mobileMenuToggle" class="md:hidden p-2">☰</button>
+          </div>
         </div>
       </header>
 
-      <main class="w-full max-w-6xl mx-auto px-6 py-8">
-        <!-- カテゴリタブ -->
-        <div class="mb-6 flex gap-2 no-print">
-          <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            すべて
-          </button>
-          <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            業務用
-          </button>
-          <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            プライベート
-          </button>
-        </div>
+      <div class="flex-1 flex flex-col">
+        <header class="hidden md:block w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
+          <div class="px-6 py-4">
+            <h1 class="text-2xl font-bold text-blue-900">住所録管理</h1>
+          </div>
+        </header>
+
+        <main class="flex-1 px-4 md:px-6 py-8 w-full overflow-y-auto">
+          <!-- カテゴリタブ -->
+          <div class="mb-6 flex gap-2 no-print flex-wrap">
+            <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+              すべて
+            </button>
+            <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+              業務用
+            </button>
+            <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+              プライベート
+            </button>
+          </div>
 
         <!-- コントロールパネル -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
@@ -296,11 +370,12 @@ function renderMainUI(): string {
           }
         </div>
 
-        ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
-      </main>
+          ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
+        </main>
 
-      <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
-      <div id="printArea" class="print-only"></div>
+        <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
+        <div id="printArea" class="print-only"></div>
+      </div>
     </div>
   `
 }
@@ -406,6 +481,21 @@ function renderSenderForm(): string {
   return `
     <div class="bg-green-50 rounded-lg shadow-md p-6 mb-8 border-2 border-green-200 no-print">
       <h3 class="text-lg font-bold text-green-900 mb-4">差出人情報（裏面に印刷されます）</h3>
+
+      <!-- 最近使った差出人リスト -->
+      ${state.recentSenders.length > 0 ? `
+        <div class="mb-4 p-3 bg-green-100 rounded-md">
+          <label class="block text-sm font-medium text-green-900 mb-2">クイック選択:</label>
+          <div class="flex gap-2 flex-wrap">
+            ${state.recentSenders.slice(0, 5).map((sender, idx) => `
+              <button type="button" class="quick-sender-select-btn px-3 py-1 bg-white border border-green-300 rounded text-sm hover:bg-green-50 transition" data-index="${idx}">
+                ${escapeHtml(sender.personName || sender.companyName)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
       <form id="senderForm" class="space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -757,6 +847,81 @@ function renderPostcardBack(): string {
  * イベントバインド
  */
 function bindEvents(): void {
+  // サイドバーのクイックアクション
+  const undoBtn = document.getElementById('sidebarUndoBtn')
+  const redoBtn = document.getElementById('sidebarRedoBtn')
+
+  if (undoBtn) {
+    undoBtn.addEventListener('click', () => {
+      if (performUndo()) {
+        render()
+      }
+    })
+  }
+
+  if (redoBtn) {
+    redoBtn.addEventListener('click', () => {
+      if (performRedo()) {
+        render()
+      }
+    })
+  }
+
+  // 最近使った差出人の選択
+  const recentSenderBtns = document.querySelectorAll('.recent-sender-btn')
+  recentSenderBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
+      if (state.recentSenders[index]) {
+        state.senderInfo = { ...state.recentSenders[index] }
+        saveSenderInfo(state.senderInfo)
+        showError('成功', `「${state.recentSenders[index].personName || state.recentSenders[index].companyName}」を選択しました`, true)
+        render()
+      }
+    })
+  })
+
+  // 検索履歴からの検索
+  const searchHistoryBtns = document.querySelectorAll('.search-history-btn')
+  searchHistoryBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const keyword = (e.target as HTMLElement).textContent?.replace('🔍 ', '') || ''
+      const searchInput = document.getElementById('searchInput') as HTMLInputElement
+      if (searchInput) {
+        searchInput.value = keyword
+        state.filterQuery = keyword
+        state.currentPage = 1
+        render()
+        searchInput.focus()
+      }
+    })
+  })
+
+  // クイック差出人選択（フォーム内）
+  const quickSenderBtns = document.querySelectorAll('.quick-sender-select-btn')
+  quickSenderBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault()
+      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
+      if (state.recentSenders[index]) {
+        const sender = state.recentSenders[index]
+        const companyInput = document.getElementById('senderCompanyName') as HTMLInputElement
+        const personInput = document.getElementById('senderPersonName') as HTMLInputElement
+        const postalInput = document.getElementById('senderPostalCode') as HTMLInputElement
+        const addressInput = document.getElementById('senderAddress') as HTMLInputElement
+        const phoneInput = document.getElementById('senderPhone') as HTMLInputElement
+
+        if (companyInput) companyInput.value = sender.companyName
+        if (personInput) personInput.value = sender.personName
+        if (postalInput) postalInput.value = sender.postalCode
+        if (addressInput) addressInput.value = sender.address
+        if (phoneInput) phoneInput.value = sender.phone
+
+        showError('成功', `「${sender.personName || sender.companyName}」の情報を入力しました`, true)
+      }
+    })
+  })
+
   // ドラッグ&ドロップ / ファイル選択
   const dropZone = getElement('dropZone')
   const csvFile = getElement('csvFile') as HTMLInputElement
@@ -980,14 +1145,18 @@ function bindEvents(): void {
     senderForm.addEventListener('submit', (e) => {
       e.preventDefault()
       try {
-        state.senderInfo = {
+        const newSender: SenderInfo = {
           companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
           personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
           postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
           address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
-          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim(),
+          createdAt: Date.now()
         }
+        state.senderInfo = newSender
         saveSenderInfo(state.senderInfo)
+        addToRecentSenders(newSender)
+        state.recentSenders = loadRecentSenders()
         state.showSenderForm = false
         render()
         showError('成功', '差出人情報を保存しました', true)
