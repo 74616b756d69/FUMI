@@ -3,11 +3,13 @@ import { AppState, PostcardData, SenderInfo, CalibrationSettings } from './types
 import { parseCSV, objectsToCSV } from './utils/csv'
 import { toJapaneseEra } from './utils/kanji'
 import { storage } from './services/storage'
-import { validatePostcardData, normalizePostalCode, searchAddressByZipcode } from './utils/validation'
+import { validatePostcardData, normalizePostalCode, searchAddressByZipcode, checkDuplicate } from './utils/validation'
 import { generatePostcardPdf } from './utils/pdf'
 
 const SENDER_STORAGE_KEY = 'postcard-app-sender-info'
 const CALIBRATION_STORAGE_KEY = 'postcard-app-calibration'
+const RECENT_SENDERS_KEY = 'postcard-app-recent-senders'
+const MAX_RECENT_SENDERS = 5
 
 /**
  * トースト通知システム
@@ -76,6 +78,25 @@ function saveCalibration(cal: CalibrationSettings): void {
   localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(cal))
 }
 
+function loadRecentSenders(): SenderInfo[] {
+  try {
+    const saved = localStorage.getItem(RECENT_SENDERS_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return []
+}
+
+function saveRecentSender(sender: SenderInfo): void {
+  try {
+    const recent = loadRecentSenders()
+    const filtered = recent.filter(s => !(s.companyName === sender.companyName && s.postalCode === sender.postalCode))
+    const updated = [sender, ...filtered].slice(0, MAX_RECENT_SENDERS)
+    localStorage.setItem(RECENT_SENDERS_KEY, JSON.stringify(updated))
+  } catch (error) {
+    console.error('Failed to save recent sender:', error)
+  }
+}
+
 const state: AppState = {
   postcards: [],
   template: {
@@ -99,7 +120,8 @@ const state: AppState = {
   showExportMenu: false,
   senderInfo: loadSenderInfo(),
   showCalibration: false,
-  calibration: loadCalibration()
+  calibration: loadCalibration(),
+  recentSenders: loadRecentSenders()
 }
 
 /**
@@ -221,7 +243,19 @@ function renderMainUI(): string {
                   </div>
                 ` : ''}
               </div>
-              <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
+              <div class="relative">
+                <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
+                ${state.recentSenders && state.recentSenders.length > 0 ? `
+                  <div class="absolute top-full mt-2 left-0 bg-white border border-slate-300 rounded-md shadow-lg z-10 min-w-max max-w-xs">
+                    <div class="px-4 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">最近使った差出人</div>
+                    ${state.recentSenders.map((sender, idx) => `
+                      <button class="recent-sender-btn w-full text-left px-4 py-2 hover:bg-slate-50 ${idx < state.recentSenders!.length - 1 ? 'border-b border-slate-200' : ''} text-sm truncate" data-index="${idx}" title="${sender.companyName}">
+                        ${escapeHtml(sender.companyName)}
+                      </button>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
               <button id="calibrationBtn" class="button-secondary">位置補正</button>
               <button id="printFrontBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
               <button id="printBackBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
@@ -943,6 +977,19 @@ function bindEvents(): void {
     })
   }
 
+  // 最近使った差出人
+  const recentSenderBtns = document.querySelectorAll('.recent-sender-btn')
+  recentSenderBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
+      if (state.recentSenders && state.recentSenders[index]) {
+        state.senderInfo = state.recentSenders[index]
+        saveSenderInfo(state.senderInfo)
+        showToast(`差出人「${state.senderInfo.companyName}」を読み込みました`, 'success')
+      }
+    })
+  })
+
   const senderForm = document.getElementById('senderForm') as HTMLFormElement
   if (senderForm) {
     senderForm.addEventListener('submit', (e) => {
@@ -956,6 +1003,8 @@ function bindEvents(): void {
           phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
         }
         saveSenderInfo(state.senderInfo)
+        saveRecentSender(state.senderInfo)
+        state.recentSenders = loadRecentSenders()
         state.showSenderForm = false
         render()
         showToast('差出人情報を保存しました', 'success')
@@ -1155,6 +1204,15 @@ async function handleFormSubmit(e: Event): Promise<void> {
       errors.forEach(error => {
         showToast(error, 'error', 4000)
       })
+      return
+    }
+  }
+
+  // 重複チェック
+  const duplicateCheck = checkDuplicate(postalCode, companyName, state.postcards, state.editingId)
+  if (duplicateCheck.isDuplicate && duplicateCheck.existingRecord) {
+    const msg = `⚠️ 郵便番号 ${postalCode} と企業名「${companyName}」の組み合わせは既に登録されています（${duplicateCheck.existingRecord.personName ? duplicateCheck.existingRecord.personName + '様' : ''}）。続けて登録しますか？`
+    if (!confirm(msg)) {
       return
     }
   }

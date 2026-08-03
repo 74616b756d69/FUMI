@@ -270,6 +270,54 @@ export interface ValidationResult {
 }
 
 /**
+ * 郵便番号+企業名での重複チェック結果
+ */
+export interface DuplicateCheckResult {
+  isDuplicate: boolean
+  existingRecord?: {
+    id: string
+    companyName: string
+    personName?: string
+  }
+}
+
+/**
+ * 郵便番号と企業名で重複チェック
+ */
+export function checkDuplicate(
+  postalCode: string,
+  companyName: string,
+  existingRecords: Array<{
+    id: string
+    postalCode?: string
+    companyName: string
+    personName?: string
+  }>,
+  excludeId?: string
+): DuplicateCheckResult {
+  const normalized = normalizePostalCode(postalCode)
+  if (!normalized) {
+    return { isDuplicate: false }
+  }
+
+  const duplicate = existingRecords.find(
+    (record) =>
+      record.postalCode === normalized &&
+      record.companyName === companyName.trim() &&
+      record.id !== excludeId
+  )
+
+  if (duplicate) {
+    return {
+      isDuplicate: true,
+      existingRecord: duplicate
+    }
+  }
+
+  return { isDuplicate: false }
+}
+
+/**
  * ハガキデータの全体バリデーション
  */
 export function validatePostcardData(data: {
