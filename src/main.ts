@@ -9,6 +9,49 @@ import { generatePostcardPdf } from './utils/pdf'
 const SENDER_STORAGE_KEY = 'postcard-app-sender-info'
 const CALIBRATION_STORAGE_KEY = 'postcard-app-calibration'
 
+/**
+ * トースト通知システム
+ */
+type ToastType = 'success' | 'error' | 'warning' | 'info'
+
+function getToastContainer(): HTMLElement {
+  let container = document.getElementById('toast-container')
+  if (!container) {
+    container = document.createElement('div')
+    container.id = 'toast-container'
+    container.className = 'toast-container'
+    document.body.appendChild(container)
+  }
+  return container
+}
+
+function showToast(message: string, type: ToastType = 'info', duration = 3000): void {
+  const container = getToastContainer()
+  const toast = document.createElement('div')
+  toast.className = `toast ${type}`
+
+  const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' }
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type]}</span>
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button class="toast-close" aria-label="Close">&times;</button>
+  `
+
+  const closeBtn = toast.querySelector('.toast-close') as HTMLButtonElement
+  const removeToast = () => {
+    toast.classList.add('fade-out')
+    setTimeout(() => toast.remove(), 300)
+  }
+
+  closeBtn.addEventListener('click', removeToast)
+  container.appendChild(toast)
+
+  if (duration > 0) {
+    setTimeout(removeToast, duration)
+  }
+}
+
 function loadSenderInfo(): SenderInfo {
   try {
     const saved = localStorage.getItem(SENDER_STORAGE_KEY)
@@ -89,18 +132,27 @@ function renderDropZone(): string {
   return `
     <div
       id="dropZone"
-      class="border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all duration-200 cursor-pointer select-none"
+      class="border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all duration-200 ${state.isLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} select-none"
+      ${state.isLoading ? 'style="pointer-events: none;"' : ''}
     >
-      <input type="file" id="csvFile" accept=".csv" class="hidden" />
+      <input type="file" id="csvFile" accept=".csv" class="hidden" ${state.isLoading ? 'disabled' : ''} />
       <div class="flex flex-col items-center justify-center py-10 gap-3 pointer-events-none">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-        <p class="text-blue-700 font-semibold text-base">CSVファイルをここにドロップ</p>
-        <p class="text-slate-400 text-sm">または</p>
-        <span class="px-5 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm">
-          ファイルを選択
-        </span>
+        ${state.isLoading ? `
+          <svg class="animate-spin h-12 w-12 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <p class="text-blue-700 font-semibold text-base">処理中...</p>
+        ` : `
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <p class="text-blue-700 font-semibold text-base">CSVファイルをここにドロップ</p>
+          <p class="text-slate-400 text-sm">または</p>
+          <span class="px-5 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm">
+            ファイルを選択
+          </span>
+        `}
         <p class="text-xs text-slate-400">.csv ファイルのみ対応</p>
       </div>
     </div>
@@ -446,14 +498,15 @@ function renderFormPanel(): string {
               id="formCompanyName"
               class="input-field"
               value="${editing?.companyName || ''}"
+              maxlength="60"
               required
             />
-            <p class="text-xs text-slate-500 mt-1">1〜40文字</p>
+            <p class="text-xs text-slate-500 mt-1">1〜60文字</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">名前</label>
-            <input type="text" id="formPersonName" class="input-field" value="${editing?.personName || ''}" />
-            <p class="text-xs text-slate-500 mt-1">オプション</p>
+            <input type="text" id="formPersonName" class="input-field" maxlength="50" value="${editing?.personName || ''}" />
+            <p class="text-xs text-slate-500 mt-1">0〜50文字（オプション）</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">フリガナ</label>
@@ -871,17 +924,22 @@ function bindEvents(): void {
   if (senderForm) {
     senderForm.addEventListener('submit', (e) => {
       e.preventDefault()
-      state.senderInfo = {
-        companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
-        personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
-        postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
-        address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
-        phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+      try {
+        state.senderInfo = {
+          companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
+          personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
+          postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
+          address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
+          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
+        }
+        saveSenderInfo(state.senderInfo)
+        state.showSenderForm = false
+        render()
+        showToast('差出人情報を保存しました', 'success')
+      } catch (error) {
+        console.error('差出人情報保存エラー:', error)
+        showToast('差出人情報の保存に失敗しました', 'error')
       }
-      saveSenderInfo(state.senderInfo)
-      state.showSenderForm = false
-      render()
-      alert('差出人情報を保存しました')
     })
   }
 
@@ -987,8 +1045,21 @@ function bindEvents(): void {
 async function processCSVFile(file: File): Promise<void> {
   try {
     state.isLoading = true
+
+    // ファイルサイズチェック（最大5MB）
+    const MAX_FILE_SIZE = 5 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      showToast('ファイルサイズが大きすぎます（最大5MB）', 'error')
+      return
+    }
+
     const text = await file.text()
     const data = parseCSV(text)
+
+    if (data.length === 0) {
+      showToast('CSVファイルにデータが含まれていません', 'warning')
+      return
+    }
 
     const newCards = data.map((row) => {
       const prefecture = row['都道府県'] || ''
@@ -1014,13 +1085,18 @@ async function processCSVFile(file: File): Promise<void> {
     state.currentPage = 1
     state.filterQuery = ''
 
-    alert(`${newCards.length}件のハガキデータを追加しました`)
+    showToast(`${newCards.length}件のハガキデータを追加しました`, 'success')
     const csvFile = document.getElementById('csvFile') as HTMLInputElement | null
     if (csvFile) csvFile.value = ''
     render()
   } catch (error) {
     console.error('CSVパース処理でエラーが発生しました:', error)
-    alert('CSVファイルの処理に失敗しました')
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    if (errorMsg.includes('encoding') || errorMsg.includes('parse')) {
+      showToast('CSVファイルのフォーマットが正しくありません。UTF-8形式で保存されているか確認してください', 'error', 5000)
+    } else {
+      showToast('CSVファイルの処理に失敗しました。ファイルを確認してもう一度お試しください', 'error', 5000)
+    }
   } finally {
     state.isLoading = false
   }
@@ -1051,9 +1127,11 @@ async function handleFormSubmit(e: Event): Promise<void> {
   })
 
   if (!validation.isValid) {
-    const errors = Object.values(validation.errors).filter(Boolean).join('\n')
-    if (errors) {
-      alert(`入力エラー:\n${errors}`)
+    const errors = Object.values(validation.errors).filter(Boolean)
+    if (errors.length > 0) {
+      errors.forEach(error => {
+        showToast(error, 'error', 4000)
+      })
       return
     }
   }
@@ -1093,10 +1171,12 @@ async function handleFormSubmit(e: Event): Promise<void> {
     state.editingId = undefined
     state.currentPage = 1
 
+    showToast(state.editingId ? 'ハガキを更新しました' : 'ハガキを追加しました', 'success')
     render()
   } catch (error) {
     console.error('フォーム処理でエラーが発生しました:', error)
-    alert('処理に失敗しました')
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    showToast(`処理に失敗しました: ${errorMsg}`, 'error', 4000)
   } finally {
     state.isLoading = false
   }
@@ -1122,10 +1202,11 @@ async function handleDelete(id: string): Promise<void> {
       }
     }
 
+    showToast('ハガキを削除しました', 'success')
     render()
   } catch (error) {
     console.error('削除処理でエラーが発生しました:', error)
-    alert('削除に失敗しました')
+    showToast('削除に失敗しました', 'error')
   } finally {
     state.isLoading = false
   }
@@ -1145,10 +1226,11 @@ async function handleDeleteAll(): Promise<void> {
     state.postcards = []
     state.currentPage = 1
     state.filterQuery = ''
+    showToast('すべてのハガキを削除しました', 'success')
     render()
   } catch (error) {
     console.error('全削除処理でエラーが発生しました:', error)
-    alert('削除に失敗しました')
+    showToast('削除に失敗しました', 'error')
   } finally {
     state.isLoading = false
   }
@@ -1410,10 +1492,31 @@ async function handlePostalCodeSearch(postalCode: string): Promise<void> {
   } catch (error) {
     console.error('郵便番号検索エラー:', error)
     if (spinner) spinner.classList.add('hidden')
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    const isTimeout = errorMsg.includes('タイムアウト')
+
     if (prefInfo) {
-      prefInfo.textContent = '検索に失敗しました。もう一度お試しください'
-      prefInfo.className = 'text-xs mt-1 text-red-500'
+      if (isTimeout) {
+        prefInfo.innerHTML = `
+          <span class="text-red-500">検索がタイムアウトしました。</span>
+          <button class="text-red-600 underline hover:text-red-700 mt-1 block" id="retryPostalCodeBtn">もう一度試す</button>
+        `
+        prefInfo.className = 'text-xs mt-1'
+
+        const retryBtn = document.getElementById('retryPostalCodeBtn')
+        if (retryBtn) {
+          retryBtn.addEventListener('click', () => {
+            handlePostalCodeSearch(postalCode)
+          })
+        }
+      } else {
+        prefInfo.textContent = '検索に失敗しました。ネットワークをご確認ください'
+        prefInfo.className = 'text-xs mt-1 text-red-500'
+      }
     }
+
+    showToast(isTimeout ? '郵便番号検索がタイムアウトしました' : '郵便番号検索に失敗しました', 'error')
   }
 }
 
