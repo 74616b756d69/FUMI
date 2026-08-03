@@ -335,8 +335,8 @@ function renderAddressTable(postcards: PostcardData[]): string {
               <td class="py-2 px-2 text-slate-500">${escapeHtml(card.memo || '')}</td>
               <td class="py-2 px-2">
                 <div class="flex gap-1">
-                  <button class="edit-btn text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${card.id}">編集</button>
-                  <button class="delete-btn text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${card.id}">削除</button>
+                  <button class="edit-btn text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${card.id}" aria-label="ハガキ ${escapeHtml(card.companyName)} を編集">編集</button>
+                  <button class="delete-btn text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${card.id}" aria-label="ハガキ ${escapeHtml(card.companyName)} を削除">削除</button>
                 </div>
               </td>
             </tr>
@@ -490,7 +490,7 @@ function renderFormPanel(): string {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">
+            <label for="formCompanyName" class="block text-sm font-medium text-slate-700 mb-2">
               企業名 <span class="text-red-500">*</span>
             </label>
             <input
@@ -500,6 +500,8 @@ function renderFormPanel(): string {
               value="${editing?.companyName || ''}"
               maxlength="60"
               required
+              aria-required="true"
+              aria-label="企業名（必須、1～60文字）"
             />
             <p class="text-xs text-slate-500 mt-1">1〜60文字</p>
           </div>
@@ -517,7 +519,7 @@ function renderFormPanel(): string {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">
+            <label for="formPostalCode" class="block text-sm font-medium text-slate-700 mb-2">
               郵便番号 <span class="text-red-500">*</span>
             </label>
             <div class="relative">
@@ -530,6 +532,8 @@ function renderFormPanel(): string {
                 maxlength="8"
                 value="${editing?.postalCode || ''}"
                 required
+                aria-required="true"
+                aria-label="郵便番号（必須、XXX-XXXX形式）"
               />
               <div id="postalCodeSpinner" class="absolute right-3 top-1/2 -translate-y-1/2 hidden">
                 <svg class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -566,7 +570,7 @@ function renderFormPanel(): string {
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-2">
+          <label for="formAddress" class="block text-sm font-medium text-slate-700 mb-2">
             住所 <span class="text-red-500">*</span>
           </label>
           <input
@@ -575,6 +579,8 @@ function renderFormPanel(): string {
             class="input-field"
             value="${editing?.address || ''}"
             required
+            aria-required="true"
+            aria-label="住所（必須、5～200文字）"
           />
           <p class="text-xs text-slate-500 mt-1">5〜200文字</p>
         </div>
@@ -710,6 +716,23 @@ function renderPostcardBack(): string {
  * イベントバインド
  */
 function bindEvents(): void {
+  // キーボード操作
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (state.showForm) {
+        state.showForm = false
+        state.editingId = undefined
+        render()
+      } else if (state.showSenderForm) {
+        state.showSenderForm = false
+        render()
+      } else if (state.showCalibration) {
+        state.showCalibration = false
+        render()
+      }
+    }
+  })
+
   // ドラッグ&ドロップ / ファイル選択
   const dropZone = getElement('dropZone')
   const csvFile = getElement('csvFile') as HTMLInputElement
