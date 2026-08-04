@@ -192,36 +192,39 @@ function renderMainUI(): string {
   )
 
   return `
-    <div class="app bg-gray-50 min-h-screen">
+    <div class="app bg-gray-50">
       <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
-        <div class="max-w-6xl mx-auto px-6 py-6">
+        <div class="px-6 py-6">
           <h1 class="text-3xl font-bold text-blue-900 mb-2">Fumi</h1>
         </div>
       </header>
 
-      <main class="w-full max-w-6xl mx-auto px-6 py-8">
-        <!-- カテゴリタブ -->
-        <div class="mb-6 flex gap-2 no-print">
-          <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            すべて
-          </button>
-          <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            業務用
-          </button>
-          <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-            プライベート
-          </button>
-        </div>
+      <div class="app-with-sidebar flex-1">
+        <!-- サイドバー -->
+        <aside class="sidebar">
+          <div class="sidebar-sticky">
+            <!-- カテゴリセクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">カテゴリ</span>
+              <div class="sidebar-buttons">
+                <button id="categoryAllBtn" class="sidebar-button category ${state.activeCategory === 'all' ? 'active' : ''}">
+                  すべて
+                </button>
+                <button id="categoryBusinessBtn" class="sidebar-button category ${state.activeCategory === 'business' ? 'active' : ''}">
+                  業務用
+                </button>
+                <button id="categoryPrivateBtn" class="sidebar-button category ${state.activeCategory === 'private' ? 'active' : ''}">
+                  プライベート
+                </button>
+              </div>
+            </div>
 
-        <!-- コントロールパネル -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
-          <div class="space-y-4">
-            ${renderDropZone()}
-            <div class="space-y-2">
-              <label class="block text-sm font-medium text-slate-700">検索</label>
-              <div class="flex gap-2">
-                <input type="text" id="searchInput" placeholder="検索キーワード..." class="input-field flex-1" value="${state.filterQuery}" />
-                <select id="searchFieldSelect" class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+            <!-- 検索セクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">検索フィルタ</span>
+              <div class="space-y-2">
+                <input type="text" id="searchInput" placeholder="キーワード..." class="input-field text-sm" value="${state.filterQuery}" />
+                <select id="searchFieldSelect" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                   <option value="all" ${state.searchField === 'all' ? 'selected' : ''}>すべて</option>
                   <option value="companyName" ${state.searchField === 'companyName' ? 'selected' : ''}>企業名</option>
                   <option value="personName" ${state.searchField === 'personName' ? 'selected' : ''}>名前</option>
@@ -230,64 +233,93 @@ function renderMainUI(): string {
                   <option value="memo" ${state.searchField === 'memo' ? 'selected' : ''}>備考</option>
                 </select>
               </div>
-              <p class="text-xs text-slate-500">フィールドを選択して検索範囲を絞り込めます</p>
             </div>
 
-            <div class="flex flex-wrap gap-2">
-              <button id="toggleFormBtn" class="button-secondary">+ 手動登録</button>
-              <div class="relative">
-                <button id="exportBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
-                ${state.showExportMenu ? `
-                  <div class="absolute top-full mt-2 left-0 bg-white border border-slate-300 rounded-md shadow-lg z-10 min-w-max">
-                    <button id="exportAllBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-200">すべてエクスポート</button>
-                    <button id="exportBusinessBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-200">業務用のみ</button>
-                    <button id="exportPrivateBtn" class="w-full text-left px-4 py-2 hover:bg-slate-50">プライベートのみ</button>
-                  </div>
-                ` : ''}
+            <!-- アクションセクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">データ操作</span>
+              <div class="sidebar-buttons">
+                <button id="toggleFormBtn" class="sidebar-button action">+ 手動登録</button>
+                <div class="relative">
+                  <button id="exportBtn" class="sidebar-button action w-full" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
+                  ${state.showExportMenu ? `
+                    <div class="absolute left-0 top-full mt-1 bg-white border border-slate-300 rounded-md shadow-lg z-20 min-w-max">
+                      <button id="exportAllBtn" class="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-200 text-sm">すべて</button>
+                      <button id="exportBusinessBtn" class="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-200 text-sm">業務用のみ</button>
+                      <button id="exportPrivateBtn" class="w-full text-left px-3 py-2 hover:bg-slate-50 text-sm">プライベートのみ</button>
+                    </div>
+                  ` : ''}
+                </div>
+                <button id="deleteAllBtn" class="sidebar-button action text-red-600 hover:bg-red-100" ${state.postcards.length === 0 ? 'disabled' : ''}>全削除</button>
               </div>
-              <div class="relative">
-                <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
-                ${state.recentSenders && state.recentSenders.length > 0 ? `
-                  <div class="absolute top-full mt-2 left-0 bg-white border border-slate-300 rounded-md shadow-lg z-10 min-w-max max-w-xs">
-                    <div class="px-4 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">最近使った差出人</div>
-                    ${state.recentSenders.map((sender, idx) => `
-                      <button class="recent-sender-btn w-full text-left px-4 py-2 hover:bg-slate-50 ${idx < state.recentSenders!.length - 1 ? 'border-b border-slate-200' : ''} text-sm truncate" data-index="${idx}" title="${sender.companyName}">
-                        ${escapeHtml(sender.companyName)}
-                      </button>
-                    `).join('')}
-                  </div>
-                ` : ''}
-              </div>
-              <button id="calibrationBtn" class="button-secondary">位置補正</button>
-              <button id="previewBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>プレビュー</button>
-              <button id="printFrontBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
-              <button id="printBackBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
-              <button id="pdfExportBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
-              <button id="deleteAllBtn" class="button-secondary text-red-600 hover:bg-red-100" ${state.postcards.length === 0 ? 'disabled' : ''}>全削除</button>
             </div>
 
-            <div class="pt-4 border-t border-slate-200 text-sm text-slate-600">
-              <p>合計: <strong>${state.postcards.length}</strong> 件 | 表示中: <strong>${paginatedCards.length}</strong> 件</p>
+            <!-- 設定セクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">設定</span>
+              <div class="sidebar-buttons">
+                <div class="relative">
+                  <button id="senderInfoBtn" class="sidebar-button action">差出人設定</button>
+                  ${state.recentSenders && state.recentSenders.length > 0 ? `
+                    <div class="absolute left-0 top-full mt-1 bg-white border border-slate-300 rounded-md shadow-lg z-20 min-w-max max-w-xs">
+                      <div class="px-3 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">最近使った差出人</div>
+                      ${state.recentSenders.map((sender, idx) => `
+                        <button class="recent-sender-btn w-full text-left px-3 py-2 hover:bg-slate-50 ${idx < state.recentSenders!.length - 1 ? 'border-b border-slate-200' : ''} text-xs truncate" data-index="${idx}" title="${sender.companyName}">
+                          ${escapeHtml(sender.companyName)}
+                        </button>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+                </div>
+                <button id="calibrationBtn" class="sidebar-button action">位置補正</button>
+              </div>
+            </div>
+
+            <!-- 印刷セクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">出力</span>
+              <div class="sidebar-buttons">
+                <button id="previewBtn" class="sidebar-button action" ${state.postcards.length === 0 ? 'disabled' : ''}>プレビュー</button>
+                <button id="printFrontBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
+                <button id="printBackBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
+                <button id="pdfExportBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
+              </div>
+            </div>
+
+            <!-- 統計セクション -->
+            <div class="sidebar-section">
+              <span class="sidebar-title">統計</span>
+              <div class="text-sm text-slate-600 space-y-1">
+                <p>合計: <strong>${state.postcards.length}</strong> 件</p>
+                <p>表示: <strong>${paginatedCards.length}</strong> 件</p>
+              </div>
             </div>
           </div>
-        </div>
+        </aside>
 
-        ${state.showSenderForm ? renderSenderForm() : ''}
-        ${state.showCalibration ? renderCalibrationPanel() : ''}
-        ${state.showPreview ? renderPreviewPanel() : ''}
-        ${state.showForm ? renderFormPanel() : ''}
+        <!-- メインコンテンツ -->
+        <main class="main-content">
+          <div class="w-full px-6 py-8">
+            ${renderDropZone()}
 
-        <!-- 住所録一覧 -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
-          <h2 class="text-xl font-bold text-slate-800 mb-6">住所録一覧</h2>
-          ${paginatedCards.length > 0
-            ? renderAddressTable(paginatedCards)
-            : '<p class="text-slate-500 text-center py-12">データがありません。CSVファイルをアップロードするか、手動登録してください。</p>'
-          }
-        </div>
+            ${state.showSenderForm ? renderSenderForm() : ''}
+            ${state.showCalibration ? renderCalibrationPanel() : ''}
+            ${state.showPreview ? renderPreviewPanel() : ''}
+            ${state.showForm ? renderFormPanel() : ''}
 
-        ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
-      </main>
+            <!-- 住所録一覧 -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
+              <h2 class="text-xl font-bold text-slate-800 mb-6">住所録一覧</h2>
+              ${paginatedCards.length > 0
+                ? renderAddressTable(paginatedCards)
+                : '<p class="text-slate-500 text-center py-12">データがありません。CSVファイルをアップロードするか、手動登録してください。</p>'
+              }
+            </div>
+
+            ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
+          </div>
+        </main>
+      </div>
 
       <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
       <div id="printArea" class="print-only"></div>
