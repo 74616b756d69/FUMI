@@ -282,14 +282,6 @@ function renderMainUI(): string {
               </div>
             </div>
 
-            <!-- 統計セクション -->
-            <div class="sidebar-section">
-              <span class="sidebar-title">統計</span>
-              <div class="text-sm text-slate-600 space-y-1">
-                <p>合計: <strong>${state.postcards.length}</strong> 件</p>
-                <p>表示: <strong>${paginatedCards.length}</strong> 件</p>
-              </div>
-            </div>
           </div>
         </aside>
 
