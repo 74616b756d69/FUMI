@@ -64,25 +64,38 @@ export function isValidAddress(address: string): boolean {
 }
 
 /**
+ * 企業名のバリデーション
+ * @param name 企業名
+ * @returns 有効な企業名か
+ */
+export function isValidCompanyName(name: string): boolean {
+  if (!name) return false
+
+  const trimmed = name.trim()
+
+  // 最小1文字以上、最大60文字以下
+  if (trimmed.length < 1 || trimmed.length > 60) {
+    return false
+  }
+
+  return true
+}
+
+/**
  * 宛名のバリデーション
  * @param name 宛名
  * @returns 有効な宛名か
  */
 export function isValidName(name: string): boolean {
   if (!name) return false
-  
+
   const trimmed = name.trim()
-  
-  // 最小1文字以上
-  if (trimmed.length < 1) {
+
+  // 最小1文字以上、最大50文字以下
+  if (trimmed.length < 1 || trimmed.length > 50) {
     return false
   }
-  
-  // 最大40文字以下
-  if (trimmed.length > 40) {
-    return false
-  }
-  
+
   return true
 }
 
@@ -214,7 +227,11 @@ export async function searchAddressByZipcode(zipcode: string): Promise<ZipcodeRe
     const digits = normalized.replace('-', '')
     const url = `https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`
 
-    const response = await fetch(url)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3000)
+
+    const response = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeoutId)
     const data = await response.json()
 
     if (data.status === 200 && data.results && data.results.length > 0) {
@@ -229,6 +246,10 @@ export async function searchAddressByZipcode(zipcode: string): Promise<ZipcodeRe
 
     return null
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('Zipcode search timeout')
+      throw new Error('郵便番号検索がタイムアウトしました')
+    }
     console.error('Zipcode search error:', error)
     return null
   }
@@ -249,6 +270,54 @@ export interface ValidationResult {
 }
 
 /**
+ * 郵便番号+企業名での重複チェック結果
+ */
+export interface DuplicateCheckResult {
+  isDuplicate: boolean
+  existingRecord?: {
+    id: string
+    companyName: string
+    personName?: string
+  }
+}
+
+/**
+ * 郵便番号と企業名で重複チェック
+ */
+export function checkDuplicate(
+  postalCode: string,
+  companyName: string,
+  existingRecords: Array<{
+    id: string
+    postalCode?: string
+    companyName: string
+    personName?: string
+  }>,
+  excludeId?: string
+): DuplicateCheckResult {
+  const normalized = normalizePostalCode(postalCode)
+  if (!normalized) {
+    return { isDuplicate: false }
+  }
+
+  const duplicate = existingRecords.find(
+    (record) =>
+      record.postalCode === normalized &&
+      record.companyName === companyName.trim() &&
+      record.id !== excludeId
+  )
+
+  if (duplicate) {
+    return {
+      isDuplicate: true,
+      existingRecord: duplicate
+    }
+  }
+
+  return { isDuplicate: false }
+}
+
+/**
  * ハガキデータの全体バリデーション
  */
 export function validatePostcardData(data: {
@@ -260,13 +329,12 @@ export function validatePostcardData(data: {
 }): ValidationResult {
   const errors: ValidationResult['errors'] = {}
 
-  if (!isValidName(data.companyName)) {
-    errors.companyName = '企業名は1〜40文字で入力してください'
+  if (!isValidCompanyName(data.companyName)) {
+    errors.companyName = '企業名は1〜60文字で入力してください'
   }
 
-  // 名前はオプション
   if (data.personName && !isValidName(data.personName)) {
-    errors.personName = '名前は1〜40文字で入力してください'
+    errors.personName = '名前は1〜50文字で入力してください'
   }
 
   if (!isValidPostalCode(data.postalCode)) {
@@ -278,7 +346,7 @@ export function validatePostcardData(data: {
   }
 
   if (!isValidPhone(data.phone)) {
-    errors.phone = '電話番号の形式が正しくありません'
+    errors.phone = '電話番号は数字・ハイフン・括弧・スペースのみで入力してください'
   }
 
   return {

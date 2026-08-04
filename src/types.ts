@@ -57,4 +57,7 @@ export interface AppState {
   senderInfo: SenderInfo;
   showCalibration: boolean;
   calibration: CalibrationSettings;
+  recentSenders?: SenderInfo[];
+  showPreview?: boolean;
+  previewMode?: 'front' | 'back';
 }
