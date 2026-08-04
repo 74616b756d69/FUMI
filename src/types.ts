@@ -27,14 +27,11 @@ export interface PostcardTemplate {
 }
 
 export interface SenderInfo {
-  id?: string;
-  name?: string;
   companyName: string;
   personName: string;
   postalCode: string;
   address: string;
   phone: string;
-  createdAt?: number;
 }
 
 export interface CalibrationSettings {
@@ -60,11 +57,7 @@ export interface AppState {
   senderInfo: SenderInfo;
   showCalibration: boolean;
   calibration: CalibrationSettings;
-  searchHistory: string[];
-  recentSenders: SenderInfo[];
-}
-
-export interface HistoryState {
-  postcards: PostcardData[];
-  timestamp: number;
+  recentSenders?: SenderInfo[];
+  showPreview?: boolean;
+  previewMode?: 'front' | 'back';
 }

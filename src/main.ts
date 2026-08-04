@@ -3,18 +3,56 @@ import { AppState, PostcardData, SenderInfo, CalibrationSettings } from './types
 import { parseCSV, objectsToCSV } from './utils/csv'
 import { toJapaneseEra } from './utils/kanji'
 import { storage } from './services/storage'
-import { validatePostcardData, normalizePostalCode, searchAddressByZipcode } from './utils/validation'
+import { validatePostcardData, normalizePostalCode, searchAddressByZipcode, checkDuplicate } from './utils/validation'
 import { generatePostcardPdf } from './utils/pdf'
 
 const SENDER_STORAGE_KEY = 'postcard-app-sender-info'
 const CALIBRATION_STORAGE_KEY = 'postcard-app-calibration'
-const SEARCH_HISTORY_KEY = 'postcard-app-search-history'
 const RECENT_SENDERS_KEY = 'postcard-app-recent-senders'
-const MAX_HISTORY_ITEMS = 50
-const MAX_UNDO_STEPS = 20
+const MAX_RECENT_SENDERS = 5
 
-let undoStack: PostcardData[][] = []
-let redoStack: PostcardData[][] = []
+/**
+ * トースト通知システム
+ */
+type ToastType = 'success' | 'error' | 'warning' | 'info'
+
+function getToastContainer(): HTMLElement {
+  let container = document.getElementById('toast-container')
+  if (!container) {
+    container = document.createElement('div')
+    container.id = 'toast-container'
+    container.className = 'toast-container'
+    document.body.appendChild(container)
+  }
+  return container
+}
+
+function showToast(message: string, type: ToastType = 'info', duration = 3000): void {
+  const container = getToastContainer()
+  const toast = document.createElement('div')
+  toast.className = `toast ${type}`
+
+  const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' }
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type]}</span>
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button class="toast-close" aria-label="Close">&times;</button>
+  `
+
+  const closeBtn = toast.querySelector('.toast-close') as HTMLButtonElement
+  const removeToast = () => {
+    toast.classList.add('fade-out')
+    setTimeout(() => toast.remove(), 300)
+  }
+
+  closeBtn.addEventListener('click', removeToast)
+  container.appendChild(toast)
+
+  if (duration > 0) {
+    setTimeout(removeToast, duration)
+  }
+}
 
 function loadSenderInfo(): SenderInfo {
   try {
@@ -26,7 +64,6 @@ function loadSenderInfo(): SenderInfo {
 
 function saveSenderInfo(info: SenderInfo): void {
   localStorage.setItem(SENDER_STORAGE_KEY, JSON.stringify(info))
-  addToRecentSenders(info)
 }
 
 function loadCalibration(): CalibrationSettings {
@@ -41,18 +78,6 @@ function saveCalibration(cal: CalibrationSettings): void {
   localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(cal))
 }
 
-function loadSearchHistory(): string[] {
-  try {
-    const saved = localStorage.getItem(SEARCH_HISTORY_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch {}
-  return []
-}
-
-function saveSearchHistory(history: string[]): void {
-  localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY_ITEMS)))
-}
-
 function loadRecentSenders(): SenderInfo[] {
   try {
     const saved = localStorage.getItem(RECENT_SENDERS_KEY)
@@ -61,37 +86,15 @@ function loadRecentSenders(): SenderInfo[] {
   return []
 }
 
-function saveRecentSenders(senders: SenderInfo[]): void {
-  localStorage.setItem(RECENT_SENDERS_KEY, JSON.stringify(senders.slice(0, 10)))
-}
-
-function addToRecentSenders(sender: SenderInfo): void {
-  const senders = loadRecentSenders()
-  const filtered = senders.filter(s => s.companyName !== sender.companyName || s.personName !== sender.personName)
-  filtered.unshift(sender)
-  saveRecentSenders(filtered)
-}
-
-function pushUndoState(postcards: PostcardData[]): void {
-  undoStack.push(JSON.parse(JSON.stringify(postcards)))
-  if (undoStack.length > MAX_UNDO_STEPS) {
-    undoStack.shift()
+function saveRecentSender(sender: SenderInfo): void {
+  try {
+    const recent = loadRecentSenders()
+    const filtered = recent.filter(s => !(s.companyName === sender.companyName && s.postalCode === sender.postalCode))
+    const updated = [sender, ...filtered].slice(0, MAX_RECENT_SENDERS)
+    localStorage.setItem(RECENT_SENDERS_KEY, JSON.stringify(updated))
+  } catch (error) {
+    console.error('Failed to save recent sender:', error)
   }
-  redoStack = []
-}
-
-function performUndo(): boolean {
-  if (undoStack.length === 0) return false
-  redoStack.push(JSON.parse(JSON.stringify(state.postcards)))
-  state.postcards = undoStack.pop() || []
-  return true
-}
-
-function performRedo(): boolean {
-  if (redoStack.length === 0) return false
-  undoStack.push(JSON.parse(JSON.stringify(state.postcards)))
-  state.postcards = redoStack.pop() || []
-  return true
 }
 
 const state: AppState = {
@@ -118,8 +121,9 @@ const state: AppState = {
   senderInfo: loadSenderInfo(),
   showCalibration: false,
   calibration: loadCalibration(),
-  searchHistory: loadSearchHistory(),
-  recentSenders: loadRecentSenders()
+  recentSenders: loadRecentSenders(),
+  showPreview: false,
+  previewMode: 'front'
 }
 
 /**
@@ -139,68 +143,40 @@ async function initApp(): Promise<void> {
     await storage.init()
     const allCards = await storage.getAll()
     state.postcards = allCards
-    pushUndoState([])
   } catch (error) {
     console.error('Failed to initialize storage:', error)
-    showError('アプリケーション初期化エラー', '初期化処理中にエラーが発生しました')
   }
 
   const app = getElement('app')
   app.innerHTML = renderMainUI()
   bindEvents()
-  setupKeyboardShortcuts()
-}
-
-function setupKeyboardShortcuts(): void {
-  document.addEventListener('keydown', (e) => {
-    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
-    const modifier = isMac ? e.metaKey : e.ctrlKey
-
-    if (modifier && e.key === 's') {
-      e.preventDefault()
-      const form = document.getElementById('postcardForm')
-      if (form) {
-        form.dispatchEvent(new Event('submit'))
-      }
-    } else if (modifier && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault()
-      if (performUndo()) {
-        render()
-      }
-    } else if ((modifier && e.shiftKey && e.key === 'Z') || (modifier && e.shiftKey && e.key === 'z')) {
-      e.preventDefault()
-      if (performRedo()) {
-        render()
-      }
-    }
-  })
-}
-
-function showError(title: string, message: string, isSuccess: boolean = false): void {
-  const errorDiv = document.createElement('div')
-  const bgClass = isSuccess ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'
-  errorDiv.className = `fixed top-4 right-4 ${bgClass} border px-4 py-3 rounded shadow-lg z-50 max-w-sm`
-  errorDiv.innerHTML = `<strong>${title}</strong><br>${message}`
-  document.body.appendChild(errorDiv)
-  setTimeout(() => errorDiv.remove(), 5000)
 }
 
 function renderDropZone(): string {
   return `
     <div
       id="dropZone"
-      class="border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all duration-200 cursor-pointer select-none"
+      class="border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all duration-200 ${state.isLoading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} select-none"
+      ${state.isLoading ? 'style="pointer-events: none;"' : ''}
     >
-      <input type="file" id="csvFile" accept=".csv" class="hidden" />
+      <input type="file" id="csvFile" accept=".csv" class="hidden" ${state.isLoading ? 'disabled' : ''} />
       <div class="flex flex-col items-center justify-center py-10 gap-3 pointer-events-none">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-        <p class="text-blue-700 font-semibold text-base">CSVファイルをここにドロップ</p>
-        <p class="text-slate-400 text-sm">または</p>
-        <span class="px-5 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm">
-          ファイルを選択
-        </span>
+        ${state.isLoading ? `
+          <svg class="animate-spin h-12 w-12 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <p class="text-blue-700 font-semibold text-base">処理中...</p>
+        ` : `
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <p class="text-blue-700 font-semibold text-base">CSVファイルをここにドロップ</p>
+          <p class="text-slate-400 text-sm">または</p>
+          <span class="px-5 py-2 bg-blue-600 text-white rounded-md font-medium text-sm shadow-sm">
+            ファイルを選択
+          </span>
+        `}
         <p class="text-xs text-slate-400">.csv ファイルのみ対応</p>
       </div>
     </div>
@@ -216,100 +192,26 @@ function renderMainUI(): string {
   )
 
   return `
-    <div class="app bg-gray-50 min-h-screen flex flex-col md:flex-row">
-      <!-- サイドバー -->
-      <aside class="w-full md:w-64 bg-white border-r border-slate-200 p-4 md:min-h-screen no-print">
-        <div class="space-y-6">
-          <!-- ヘッダー -->
-          <div>
-            <h1 class="text-2xl font-bold text-blue-900">Fumi</h1>
-            <p class="text-xs text-slate-500">宛名印刷アプリ</p>
-          </div>
-
-          <!-- クイックアクション -->
-          <div class="space-y-2">
-            <h3 class="text-sm font-semibold text-slate-700">操作</h3>
-            <button id="sidebarUndoBtn" class="w-full px-3 py-2 text-sm text-left bg-blue-50 hover:bg-blue-100 rounded text-slate-700 transition" ${undoStack.length === 0 ? 'disabled' : ''}>
-              ↶ さかのぼる (${undoStack.length})
-            </button>
-            <button id="sidebarRedoBtn" class="w-full px-3 py-2 text-sm text-left bg-blue-50 hover:bg-blue-100 rounded text-slate-700 transition" ${redoStack.length === 0 ? 'disabled' : ''}>
-              ↷ やり直す (${redoStack.length})
-            </button>
-          </div>
-
-          <!-- よく使う差出人 -->
-          <div class="space-y-2">
-            <h3 class="text-sm font-semibold text-slate-700">よく使う差出人</h3>
-            ${state.recentSenders.length > 0 ? `
-              <div class="space-y-1 max-h-48 overflow-y-auto">
-                ${state.recentSenders.map((sender, idx) => `
-                  <button class="recent-sender-btn w-full px-2 py-2 text-xs text-left bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 transition" data-index="${idx}">
-                    <div class="font-medium text-slate-800 truncate">${escapeHtml(sender.personName || sender.companyName)}</div>
-                    <div class="text-slate-500 truncate">${escapeHtml(sender.companyName)}</div>
-                  </button>
-                `).join('')}
-              </div>
-            ` : `
-              <p class="text-xs text-slate-500">最近使った差出人はまだありません</p>
-            `}
-          </div>
-
-          <!-- 検索履歴 -->
-          <div class="space-y-2">
-            <h3 class="text-sm font-semibold text-slate-700">検索履歴</h3>
-            ${state.searchHistory.length > 0 ? `
-              <div class="space-y-1 max-h-32 overflow-y-auto">
-                ${state.searchHistory.slice(0, 5).map(keyword => `
-                  <button class="search-history-btn w-full px-2 py-1 text-xs text-left bg-slate-50 hover:bg-slate-100 rounded text-slate-600 transition">
-                    🔍 ${escapeHtml(keyword)}
-                  </button>
-                `).join('')}
-              </div>
-            ` : `
-              <p class="text-xs text-slate-500">検索履歴はまだありません</p>
-            `}
-          </div>
-
-          <!-- データ統計 -->
-          <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-1">
-            <div class="text-xs text-slate-600">
-              <div>合計: <span class="font-bold text-blue-900">${state.postcards.length}</span> 件</div>
-              <div>業務用: <span class="font-bold">${state.postcards.filter(p => p.category === 'business').length}</span></div>
-              <div>プライベート: <span class="font-bold">${state.postcards.filter(p => p.category === 'private').length}</span></div>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print md:hidden">
-        <div class="px-6 py-4">
-          <div class="flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-blue-900">Fumi</h1>
-            <button id="mobileMenuToggle" class="md:hidden p-2">☰</button>
-          </div>
+    <div class="app bg-gray-50 min-h-screen">
+      <header class="w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
+        <div class="max-w-6xl mx-auto px-6 py-6">
+          <h1 class="text-3xl font-bold text-blue-900 mb-2">Fumi</h1>
         </div>
       </header>
 
-      <div class="flex-1 flex flex-col">
-        <header class="hidden md:block w-full bg-blue-50 shadow-sm border-b border-blue-200 no-print">
-          <div class="px-6 py-4">
-            <h1 class="text-2xl font-bold text-blue-900">住所録管理</h1>
-          </div>
-        </header>
-
-        <main class="flex-1 px-4 md:px-6 py-8 w-full overflow-y-auto">
-          <!-- カテゴリタブ -->
-          <div class="mb-6 flex gap-2 no-print flex-wrap">
-            <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-              すべて
-            </button>
-            <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-              業務用
-            </button>
-            <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
-              プライベート
-            </button>
-          </div>
+      <main class="w-full max-w-6xl mx-auto px-6 py-8">
+        <!-- カテゴリタブ -->
+        <div class="mb-6 flex gap-2 no-print">
+          <button id="categoryAllBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            すべて
+          </button>
+          <button id="categoryBusinessBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'business' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            業務用
+          </button>
+          <button id="categoryPrivateBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.activeCategory === 'private' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}">
+            プライベート
+          </button>
+        </div>
 
         <!-- コントロールパネル -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-8 no-print">
@@ -343,8 +245,21 @@ function renderMainUI(): string {
                   </div>
                 ` : ''}
               </div>
-              <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
+              <div class="relative">
+                <button id="senderInfoBtn" class="button-secondary">差出人設定</button>
+                ${state.recentSenders && state.recentSenders.length > 0 ? `
+                  <div class="absolute top-full mt-2 left-0 bg-white border border-slate-300 rounded-md shadow-lg z-10 min-w-max max-w-xs">
+                    <div class="px-4 py-2 text-xs font-semibold text-slate-600 border-b border-slate-200">最近使った差出人</div>
+                    ${state.recentSenders.map((sender, idx) => `
+                      <button class="recent-sender-btn w-full text-left px-4 py-2 hover:bg-slate-50 ${idx < state.recentSenders!.length - 1 ? 'border-b border-slate-200' : ''} text-sm truncate" data-index="${idx}" title="${sender.companyName}">
+                        ${escapeHtml(sender.companyName)}
+                      </button>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
               <button id="calibrationBtn" class="button-secondary">位置補正</button>
+              <button id="previewBtn" class="button-secondary" ${state.postcards.length === 0 ? 'disabled' : ''}>プレビュー</button>
               <button id="printFrontBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
               <button id="printBackBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
               <button id="pdfExportBtn" class="button-primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
@@ -359,6 +274,7 @@ function renderMainUI(): string {
 
         ${state.showSenderForm ? renderSenderForm() : ''}
         ${state.showCalibration ? renderCalibrationPanel() : ''}
+        ${state.showPreview ? renderPreviewPanel() : ''}
         ${state.showForm ? renderFormPanel() : ''}
 
         <!-- 住所録一覧 -->
@@ -370,12 +286,11 @@ function renderMainUI(): string {
           }
         </div>
 
-          ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
-        </main>
+        ${state.postcards.length > 0 ? renderPagination(totalPages) : ''}
+      </main>
 
-        <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
-        <div id="printArea" class="print-only"></div>
-      </div>
+      <!-- 印刷用裏面（非表示、印刷時のみ表示） -->
+      <div id="printArea" class="print-only"></div>
     </div>
   `
 }
@@ -458,8 +373,8 @@ function renderAddressTable(postcards: PostcardData[]): string {
               <td class="py-2 px-2 text-slate-500">${escapeHtml(card.memo || '')}</td>
               <td class="py-2 px-2">
                 <div class="flex gap-1">
-                  <button class="edit-btn text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${card.id}">編集</button>
-                  <button class="delete-btn text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${card.id}">削除</button>
+                  <button class="edit-btn text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-id="${card.id}" aria-label="ハガキ ${escapeHtml(card.companyName)} を編集">編集</button>
+                  <button class="delete-btn text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600" data-id="${card.id}" aria-label="ハガキ ${escapeHtml(card.companyName)} を削除">削除</button>
                 </div>
               </td>
             </tr>
@@ -481,21 +396,6 @@ function renderSenderForm(): string {
   return `
     <div class="bg-green-50 rounded-lg shadow-md p-6 mb-8 border-2 border-green-200 no-print">
       <h3 class="text-lg font-bold text-green-900 mb-4">差出人情報（裏面に印刷されます）</h3>
-
-      <!-- 最近使った差出人リスト -->
-      ${state.recentSenders.length > 0 ? `
-        <div class="mb-4 p-3 bg-green-100 rounded-md">
-          <label class="block text-sm font-medium text-green-900 mb-2">クイック選択:</label>
-          <div class="flex gap-2 flex-wrap">
-            ${state.recentSenders.slice(0, 5).map((sender, idx) => `
-              <button type="button" class="quick-sender-select-btn px-3 py-1 bg-white border border-green-300 rounded text-sm hover:bg-green-50 transition" data-index="${idx}">
-                ${escapeHtml(sender.personName || sender.companyName)}
-              </button>
-            `).join('')}
-          </div>
-        </div>
-      ` : ''}
-
       <form id="senderForm" class="space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -568,6 +468,42 @@ function renderPagination(totalPages: number): string {
   `
 }
 
+function renderPreviewPanel(): string {
+  if (!state.showPreview || state.postcards.length === 0) return ''
+
+  const previewCards = state.postcards.slice(0, 3)
+
+  return `
+    <div class="bg-slate-900 rounded-lg shadow-lg p-6 mb-8 border-2 border-slate-700 no-print">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-lg font-bold text-white">プレビュー（最初の${Math.min(3, state.postcards.length)}枚）</h3>
+        <button id="closePreviewBtn" class="text-white hover:text-gray-300" aria-label="Close preview">✕</button>
+      </div>
+
+      <div class="flex gap-4 overflow-x-auto pb-4" style="scroll-behavior: smooth;">
+        ${previewCards.map((card) => {
+          const scale = 0.35
+          const preview = state.previewMode === 'front'
+            ? renderPostcardFront(card)
+            : renderPostcardBack()
+
+          return `
+            <div class="flex-shrink-0" style="transform: scale(${scale}); transform-origin: top left;">
+              ${preview}
+            </div>
+          `
+        }).join('')}
+      </div>
+
+      <div class="flex gap-2 mt-4">
+        <button id="previewFrontBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.previewMode === 'front' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">宛名面</button>
+        <button id="previewBackBtn" class="px-4 py-2 rounded-md font-medium transition-colors ${state.previewMode === 'back' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">裏面</button>
+        <button id="closePreviewBtn2" class="ml-auto px-4 py-2 bg-slate-700 text-white rounded-md hover:bg-slate-600">閉じる</button>
+      </div>
+    </div>
+  `
+}
+
 function renderCalibrationPanel(): string {
   const cal = state.calibration
   return `
@@ -628,7 +564,7 @@ function renderFormPanel(): string {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">
+            <label for="formCompanyName" class="block text-sm font-medium text-slate-700 mb-2">
               企業名 <span class="text-red-500">*</span>
             </label>
             <input
@@ -636,14 +572,17 @@ function renderFormPanel(): string {
               id="formCompanyName"
               class="input-field"
               value="${editing?.companyName || ''}"
+              maxlength="60"
               required
+              aria-required="true"
+              aria-label="企業名（必須、1～60文字）"
             />
-            <p class="text-xs text-slate-500 mt-1">1〜40文字</p>
+            <p class="text-xs text-slate-500 mt-1">1〜60文字</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">名前</label>
-            <input type="text" id="formPersonName" class="input-field" value="${editing?.personName || ''}" />
-            <p class="text-xs text-slate-500 mt-1">オプション</p>
+            <input type="text" id="formPersonName" class="input-field" maxlength="50" value="${editing?.personName || ''}" />
+            <p class="text-xs text-slate-500 mt-1">0〜50文字（オプション）</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">フリガナ</label>
@@ -654,7 +593,7 @@ function renderFormPanel(): string {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">
+            <label for="formPostalCode" class="block text-sm font-medium text-slate-700 mb-2">
               郵便番号 <span class="text-red-500">*</span>
             </label>
             <div class="relative">
@@ -667,6 +606,8 @@ function renderFormPanel(): string {
                 maxlength="8"
                 value="${editing?.postalCode || ''}"
                 required
+                aria-required="true"
+                aria-label="郵便番号（必須、XXX-XXXX形式）"
               />
               <div id="postalCodeSpinner" class="absolute right-3 top-1/2 -translate-y-1/2 hidden">
                 <svg class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -703,7 +644,7 @@ function renderFormPanel(): string {
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-2">
+          <label for="formAddress" class="block text-sm font-medium text-slate-700 mb-2">
             住所 <span class="text-red-500">*</span>
           </label>
           <input
@@ -712,6 +653,8 @@ function renderFormPanel(): string {
             class="input-field"
             value="${editing?.address || ''}"
             required
+            aria-required="true"
+            aria-label="住所（必須、5～200文字）"
           />
           <p class="text-xs text-slate-500 mt-1">5〜200文字</p>
         </div>
@@ -847,79 +790,21 @@ function renderPostcardBack(): string {
  * イベントバインド
  */
 function bindEvents(): void {
-  // サイドバーのクイックアクション
-  const undoBtn = document.getElementById('sidebarUndoBtn')
-  const redoBtn = document.getElementById('sidebarRedoBtn')
-
-  if (undoBtn) {
-    undoBtn.addEventListener('click', () => {
-      if (performUndo()) {
+  // キーボード操作
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (state.showForm) {
+        state.showForm = false
+        state.editingId = undefined
+        render()
+      } else if (state.showSenderForm) {
+        state.showSenderForm = false
+        render()
+      } else if (state.showCalibration) {
+        state.showCalibration = false
         render()
       }
-    })
-  }
-
-  if (redoBtn) {
-    redoBtn.addEventListener('click', () => {
-      if (performRedo()) {
-        render()
-      }
-    })
-  }
-
-  // 最近使った差出人の選択
-  const recentSenderBtns = document.querySelectorAll('.recent-sender-btn')
-  recentSenderBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
-      if (state.recentSenders[index]) {
-        state.senderInfo = { ...state.recentSenders[index] }
-        saveSenderInfo(state.senderInfo)
-        showError('成功', `「${state.recentSenders[index].personName || state.recentSenders[index].companyName}」を選択しました`, true)
-        render()
-      }
-    })
-  })
-
-  // 検索履歴からの検索
-  const searchHistoryBtns = document.querySelectorAll('.search-history-btn')
-  searchHistoryBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const keyword = (e.target as HTMLElement).textContent?.replace('🔍 ', '') || ''
-      const searchInput = document.getElementById('searchInput') as HTMLInputElement
-      if (searchInput) {
-        searchInput.value = keyword
-        state.filterQuery = keyword
-        state.currentPage = 1
-        render()
-        searchInput.focus()
-      }
-    })
-  })
-
-  // クイック差出人選択（フォーム内）
-  const quickSenderBtns = document.querySelectorAll('.quick-sender-select-btn')
-  quickSenderBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault()
-      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
-      if (state.recentSenders[index]) {
-        const sender = state.recentSenders[index]
-        const companyInput = document.getElementById('senderCompanyName') as HTMLInputElement
-        const personInput = document.getElementById('senderPersonName') as HTMLInputElement
-        const postalInput = document.getElementById('senderPostalCode') as HTMLInputElement
-        const addressInput = document.getElementById('senderAddress') as HTMLInputElement
-        const phoneInput = document.getElementById('senderPhone') as HTMLInputElement
-
-        if (companyInput) companyInput.value = sender.companyName
-        if (personInput) personInput.value = sender.personName
-        if (postalInput) postalInput.value = sender.postalCode
-        if (addressInput) addressInput.value = sender.address
-        if (phoneInput) phoneInput.value = sender.phone
-
-        showError('成功', `「${sender.personName || sender.companyName}」の情報を入力しました`, true)
-      }
-    })
+    }
   })
 
   // ドラッグ&ドロップ / ファイル選択
@@ -994,16 +879,8 @@ function bindEvents(): void {
   const searchFieldSelect = document.getElementById('searchFieldSelect') as HTMLSelectElement
 
   searchInput.addEventListener('input', (e) => {
-    const query = (e.target as HTMLInputElement).value
-    state.filterQuery = query
+    state.filterQuery = (e.target as HTMLInputElement).value
     state.currentPage = 1
-    if (query.trim() && !state.searchHistory.includes(query)) {
-      state.searchHistory.unshift(query)
-      if (state.searchHistory.length > MAX_HISTORY_ITEMS) {
-        state.searchHistory.pop()
-      }
-      saveSearchHistory(state.searchHistory)
-    }
     render()
   })
 
@@ -1140,28 +1017,40 @@ function bindEvents(): void {
     })
   }
 
+  // 最近使った差出人
+  const recentSenderBtns = document.querySelectorAll('.recent-sender-btn')
+  recentSenderBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = parseInt((e.target as HTMLElement).getAttribute('data-index') || '0', 10)
+      if (state.recentSenders && state.recentSenders[index]) {
+        state.senderInfo = state.recentSenders[index]
+        saveSenderInfo(state.senderInfo)
+        showToast(`差出人「${state.senderInfo.companyName}」を読み込みました`, 'success')
+      }
+    })
+  })
+
   const senderForm = document.getElementById('senderForm') as HTMLFormElement
   if (senderForm) {
     senderForm.addEventListener('submit', (e) => {
       e.preventDefault()
       try {
-        const newSender: SenderInfo = {
+        state.senderInfo = {
           companyName: (document.getElementById('senderCompanyName') as HTMLInputElement).value.trim(),
           personName: (document.getElementById('senderPersonName') as HTMLInputElement).value.trim(),
           postalCode: (document.getElementById('senderPostalCode') as HTMLInputElement).value.trim(),
           address: (document.getElementById('senderAddress') as HTMLInputElement).value.trim(),
-          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim(),
-          createdAt: Date.now()
+          phone: (document.getElementById('senderPhone') as HTMLInputElement).value.trim()
         }
-        state.senderInfo = newSender
         saveSenderInfo(state.senderInfo)
-        addToRecentSenders(newSender)
+        saveRecentSender(state.senderInfo)
         state.recentSenders = loadRecentSenders()
         state.showSenderForm = false
         render()
-        showError('成功', '差出人情報を保存しました', true)
+        showToast('差出人情報を保存しました', 'success')
       } catch (error) {
-        showError('保存エラー', `差出人情報の保存に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+        console.error('差出人情報保存エラー:', error)
+        showToast('差出人情報の保存に失敗しました', 'error')
       }
     })
   }
@@ -1203,12 +1092,8 @@ function bindEvents(): void {
   const calSaveBtn = document.getElementById('calSaveBtn')
   if (calSaveBtn) {
     calSaveBtn.addEventListener('click', () => {
-      try {
-        saveCalibration(state.calibration)
-        showError('成功', `位置補正を保存しました（X: ${state.calibration.offsetX.toFixed(1)}mm, Y: ${state.calibration.offsetY.toFixed(1)}mm）`, true)
-      } catch (error) {
-        showError('保存エラー', `キャリブレーション設定の保存に失敗しました`)
-      }
+      saveCalibration(state.calibration)
+      alert(`位置補正を保存しました（X: ${state.calibration.offsetX.toFixed(1)}mm, Y: ${state.calibration.offsetY.toFixed(1)}mm）`)
     })
   }
 
@@ -1229,12 +1114,13 @@ function bindEvents(): void {
     })
   }
 
-  // エクスポート・削除・印刷・PDF出力
+  // エクスポート・削除・印刷・PDF出力・プレビュー
   const exportBtn = getElement('exportBtn')
   const exportAllBtn = document.getElementById('exportAllBtn')
   const exportBusinessBtn = document.getElementById('exportBusinessBtn')
   const exportPrivateBtn = document.getElementById('exportPrivateBtn')
   const deleteAllBtn = getElement('deleteAllBtn')
+  const previewBtn = document.getElementById('previewBtn')
   const printBackBtn = document.getElementById('printBackBtn')
   const printFrontBtn = document.getElementById('printFrontBtn')
   const pdfExportBtn = document.getElementById('pdfExportBtn')
@@ -1255,6 +1141,17 @@ function bindEvents(): void {
   }
 
   deleteAllBtn.addEventListener('click', handleDeleteAll)
+
+  if (previewBtn) {
+    previewBtn.addEventListener('click', () => {
+      state.showPreview = !state.showPreview
+      if (state.showPreview) {
+        state.previewMode = 'front'
+      }
+      render()
+    })
+  }
+
   if (printBackBtn) {
     printBackBtn.addEventListener('click', handlePrintBack)
   }
@@ -1264,6 +1161,30 @@ function bindEvents(): void {
   if (pdfExportBtn) {
     pdfExportBtn.addEventListener('click', handlePdfExport)
   }
+
+  // プレビューモード切り替え
+  const previewFrontBtn = document.getElementById('previewFrontBtn')
+  const previewBackBtn = document.getElementById('previewBackBtn')
+  const closePreviewBtns = document.querySelectorAll('#closePreviewBtn, #closePreviewBtn2')
+
+  if (previewFrontBtn) {
+    previewFrontBtn.addEventListener('click', () => {
+      state.previewMode = 'front'
+      render()
+    })
+  }
+  if (previewBackBtn) {
+    previewBackBtn.addEventListener('click', () => {
+      state.previewMode = 'back'
+      render()
+    })
+  }
+  closePreviewBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.showPreview = false
+      render()
+    })
+  })
 }
 
 /**
@@ -1273,15 +1194,19 @@ async function processCSVFile(file: File): Promise<void> {
   try {
     state.isLoading = true
 
-    if (file.size > 10 * 1024 * 1024) {
-      throw new Error('ファイルサイズが大きすぎます（最大10MB）')
+    // ファイルサイズチェック（最大5MB）
+    const MAX_FILE_SIZE = 5 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE) {
+      showToast('ファイルサイズが大きすぎます（最大5MB）', 'error')
+      return
     }
 
     const text = await file.text()
     const data = parseCSV(text)
 
     if (data.length === 0) {
-      throw new Error('CSVファイルが空です')
+      showToast('CSVファイルにデータが含まれていません', 'warning')
+      return
     }
 
     const newCards = data.map((row) => {
@@ -1302,20 +1227,24 @@ async function processCSVFile(file: File): Promise<void> {
       }
     })
 
-    pushUndoState(state.postcards)
     await storage.bulkInsert(newCards)
     const allCards = await storage.getAll()
     state.postcards = allCards
     state.currentPage = 1
     state.filterQuery = ''
 
-    showError('成功', `${newCards.length}件のハガキデータを追加しました`, true)
+    showToast(`${newCards.length}件のハガキデータを追加しました`, 'success')
     const csvFile = document.getElementById('csvFile') as HTMLInputElement | null
     if (csvFile) csvFile.value = ''
     render()
   } catch (error) {
     console.error('CSVパース処理でエラーが発生しました:', error)
-    showError('CSVインポートエラー', `CSVファイルの処理に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    if (errorMsg.includes('encoding') || errorMsg.includes('parse')) {
+      showToast('CSVファイルのフォーマットが正しくありません。UTF-8形式で保存されているか確認してください', 'error', 5000)
+    } else {
+      showToast('CSVファイルの処理に失敗しました。ファイルを確認してもう一度お試しください', 'error', 5000)
+    }
   } finally {
     state.isLoading = false
   }
@@ -1346,9 +1275,20 @@ async function handleFormSubmit(e: Event): Promise<void> {
   })
 
   if (!validation.isValid) {
-    const errors = Object.values(validation.errors).filter(Boolean).join('\n')
-    if (errors) {
-      alert(`入力エラー:\n${errors}`)
+    const errors = Object.values(validation.errors).filter(Boolean)
+    if (errors.length > 0) {
+      errors.forEach(error => {
+        showToast(error, 'error', 4000)
+      })
+      return
+    }
+  }
+
+  // 重複チェック
+  const duplicateCheck = checkDuplicate(postalCode, companyName, state.postcards, state.editingId)
+  if (duplicateCheck.isDuplicate && duplicateCheck.existingRecord) {
+    const msg = `⚠️ 郵便番号 ${postalCode} と企業名「${companyName}」の組み合わせは既に登録されています（${duplicateCheck.existingRecord.personName ? duplicateCheck.existingRecord.personName + '様' : ''}）。続けて登録しますか？`
+    if (!confirm(msg)) {
       return
     }
   }
@@ -1356,8 +1296,6 @@ async function handleFormSubmit(e: Event): Promise<void> {
   try {
     state.isLoading = true
     const normalized = normalizePostalCode(postalCode) || postalCode
-
-    pushUndoState(state.postcards)
 
     if (state.editingId) {
       await storage.update(state.editingId, {
@@ -1390,10 +1328,12 @@ async function handleFormSubmit(e: Event): Promise<void> {
     state.editingId = undefined
     state.currentPage = 1
 
+    showToast(state.editingId ? 'ハガキを更新しました' : 'ハガキを追加しました', 'success')
     render()
   } catch (error) {
     console.error('フォーム処理でエラーが発生しました:', error)
-    showError('保存エラー', `フォーム処理中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    showToast(`処理に失敗しました: ${errorMsg}`, 'error', 4000)
   } finally {
     state.isLoading = false
   }
@@ -1405,8 +1345,6 @@ async function handleFormSubmit(e: Event): Promise<void> {
 async function handleDelete(id: string): Promise<void> {
   try {
     state.isLoading = true
-    pushUndoState(state.postcards)
-
     await storage.delete(id)
     const allCards = await storage.getAll()
     state.postcards = allCards
@@ -1421,10 +1359,11 @@ async function handleDelete(id: string): Promise<void> {
       }
     }
 
+    showToast('ハガキを削除しました', 'success')
     render()
   } catch (error) {
     console.error('削除処理でエラーが発生しました:', error)
-    showError('削除エラー', `削除中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    showToast('削除に失敗しました', 'error')
   } finally {
     state.isLoading = false
   }
@@ -1434,22 +1373,21 @@ async function handleDelete(id: string): Promise<void> {
  * 全削除
  */
 async function handleDeleteAll(): Promise<void> {
-  if (!confirm('すべてのハガキを削除しますか？Cmd/Ctrl+Zで元に戻すことができます。')) {
+  if (!confirm('すべてのハガキを削除しますか？この操作は取り消せません。')) {
     return
   }
 
   try {
     state.isLoading = true
-    pushUndoState(state.postcards)
-
     await storage.clear()
     state.postcards = []
     state.currentPage = 1
     state.filterQuery = ''
+    showToast('すべてのハガキを削除しました', 'success')
     render()
   } catch (error) {
     console.error('全削除処理でエラーが発生しました:', error)
-    showError('削除エラー', `全削除中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    showToast('削除に失敗しました', 'error')
   } finally {
     state.isLoading = false
   }
@@ -1497,11 +1435,10 @@ async function handleExport(category?: string): Promise<void> {
 
     URL.revokeObjectURL(url)
     state.showExportMenu = false
-    showError('成功', `${data.length}件のデータをCSVでエクスポートしました`, true)
     render()
   } catch (error) {
     console.error('エクスポート処理でエラーが発生しました:', error)
-    showError('エクスポートエラー', `エクスポートに失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`)
+    alert('エクスポートに失敗しました')
   }
 }
 
@@ -1712,10 +1649,31 @@ async function handlePostalCodeSearch(postalCode: string): Promise<void> {
   } catch (error) {
     console.error('郵便番号検索エラー:', error)
     if (spinner) spinner.classList.add('hidden')
+
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    const isTimeout = errorMsg.includes('タイムアウト')
+
     if (prefInfo) {
-      prefInfo.textContent = '検索に失敗しました。もう一度お試しください'
-      prefInfo.className = 'text-xs mt-1 text-red-500'
+      if (isTimeout) {
+        prefInfo.innerHTML = `
+          <span class="text-red-500">検索がタイムアウトしました。</span>
+          <button class="text-red-600 underline hover:text-red-700 mt-1 block" id="retryPostalCodeBtn">もう一度試す</button>
+        `
+        prefInfo.className = 'text-xs mt-1'
+
+        const retryBtn = document.getElementById('retryPostalCodeBtn')
+        if (retryBtn) {
+          retryBtn.addEventListener('click', () => {
+            handlePostalCodeSearch(postalCode)
+          })
+        }
+      } else {
+        prefInfo.textContent = '検索に失敗しました。ネットワークをご確認ください'
+        prefInfo.className = 'text-xs mt-1 text-red-500'
+      }
     }
+
+    showToast(isTimeout ? '郵便番号検索がタイムアウトしました' : '郵便番号検索に失敗しました', 'error')
   }
 }
 
