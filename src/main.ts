@@ -203,28 +203,39 @@ function renderMainUI(): string {
         <!-- サイドバー -->
         <aside class="sidebar">
           <div class="sidebar-sticky">
-            <!-- カテゴリセクション -->
+            <!-- クイックアクション（よく使う機能） -->
             <div class="sidebar-section">
-              <span class="sidebar-title">カテゴリ</span>
+              <span class="sidebar-title">クイックアクション</span>
               <div class="sidebar-buttons">
-                <button id="categoryAllBtn" class="sidebar-button category ${state.activeCategory === 'all' ? 'active' : ''}">
-                  すべて
-                </button>
-                <button id="categoryBusinessBtn" class="sidebar-button category ${state.activeCategory === 'business' ? 'active' : ''}">
-                  業務用
-                </button>
-                <button id="categoryPrivateBtn" class="sidebar-button category ${state.activeCategory === 'private' ? 'active' : ''}">
-                  プライベート
-                </button>
+                <button id="toggleFormBtn" class="sidebar-button action primary">手動登録</button>
+                <button id="printFrontBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
+                <button id="printBackBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
+                <button id="pdfExportBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
               </div>
             </div>
 
-            <!-- 検索セクション -->
-            <div class="sidebar-section">
-              <span class="sidebar-title">検索フィルタ</span>
-              <div class="space-y-2">
+            <!-- カテゴリセクション（折りたたみ可能） -->
+            <div class="sidebar-section collapsible-section" data-section="category">
+              <button class="sidebar-section-toggle">
+                <span class="toggle-icon">▼</span>
+                <span class="sidebar-title">カテゴリ</span>
+              </button>
+              <div class="sidebar-buttons" style="display: block;">
+                <button id="categoryAllBtn" class="sidebar-button category ${state.activeCategory === 'all' ? 'active' : ''}">すべて</button>
+                <button id="categoryBusinessBtn" class="sidebar-button category ${state.activeCategory === 'business' ? 'active' : ''}">業務用</button>
+                <button id="categoryPrivateBtn" class="sidebar-button category ${state.activeCategory === 'private' ? 'active' : ''}">プライベート</button>
+              </div>
+            </div>
+
+            <!-- 検索セクション（折りたたみ可能） -->
+            <div class="sidebar-section collapsible-section" data-section="search">
+              <button class="sidebar-section-toggle">
+                <span class="toggle-icon">▼</span>
+                <span class="sidebar-title">検索フィルタ</span>
+              </button>
+              <div class="sidebar-search-content" style="display: block;">
                 <input type="text" id="searchInput" placeholder="キーワード..." class="input-field text-sm" value="${state.filterQuery}" />
-                <select id="searchFieldSelect" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <select id="searchFieldSelect" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mt-2">
                   <option value="all" ${state.searchField === 'all' ? 'selected' : ''}>すべて</option>
                   <option value="companyName" ${state.searchField === 'companyName' ? 'selected' : ''}>企業名</option>
                   <option value="personName" ${state.searchField === 'personName' ? 'selected' : ''}>名前</option>
@@ -235,11 +246,13 @@ function renderMainUI(): string {
               </div>
             </div>
 
-            <!-- アクションセクション -->
-            <div class="sidebar-section">
-              <span class="sidebar-title">データ操作</span>
-              <div class="sidebar-buttons">
-                <button id="toggleFormBtn" class="sidebar-button action">+ 手動登録</button>
+            <!-- その他操作セクション（折りたたみ可能） -->
+            <div class="sidebar-section collapsible-section" data-section="operations">
+              <button class="sidebar-section-toggle">
+                <span class="toggle-icon">▼</span>
+                <span class="sidebar-title">その他</span>
+              </button>
+              <div class="sidebar-buttons" style="display: block;">
                 <div class="relative">
                   <button id="exportBtn" class="sidebar-button action w-full" ${state.postcards.length === 0 ? 'disabled' : ''}>エクスポート</button>
                   ${state.showExportMenu ? `
@@ -250,14 +263,6 @@ function renderMainUI(): string {
                     </div>
                   ` : ''}
                 </div>
-                <button id="deleteAllBtn" class="sidebar-button action text-red-600 hover:bg-red-100" ${state.postcards.length === 0 ? 'disabled' : ''}>全削除</button>
-              </div>
-            </div>
-
-            <!-- 設定セクション -->
-            <div class="sidebar-section">
-              <span class="sidebar-title">設定</span>
-              <div class="sidebar-buttons">
                 <div class="relative">
                   <button id="senderInfoBtn" class="sidebar-button action">差出人設定</button>
                   ${state.recentSenders && state.recentSenders.length > 0 ? `
@@ -272,17 +277,8 @@ function renderMainUI(): string {
                   ` : ''}
                 </div>
                 <button id="calibrationBtn" class="sidebar-button action">位置補正</button>
-              </div>
-            </div>
-
-            <!-- 印刷セクション -->
-            <div class="sidebar-section">
-              <span class="sidebar-title">出力</span>
-              <div class="sidebar-buttons">
                 <button id="previewBtn" class="sidebar-button action" ${state.postcards.length === 0 ? 'disabled' : ''}>プレビュー</button>
-                <button id="printFrontBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>宛名面印刷</button>
-                <button id="printBackBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>裏面印刷</button>
-                <button id="pdfExportBtn" class="sidebar-button action primary" ${state.postcards.length === 0 ? 'disabled' : ''}>PDF出力</button>
+                <button id="deleteAllBtn" class="sidebar-button action" style="color: #dc2626; border-color: #fca5a5;" ${state.postcards.length === 0 ? 'disabled' : ''}>全削除</button>
               </div>
             </div>
 
@@ -1215,6 +1211,17 @@ function bindEvents(): void {
     btn.addEventListener('click', () => {
       state.showPreview = false
       render()
+    })
+  })
+
+  // セクション折りたたみ機能
+  const sectionToggles = document.querySelectorAll('.sidebar-section-toggle')
+  sectionToggles.forEach(toggle => {
+    toggle.addEventListener('click', (e) => {
+      const section = (e.target as HTMLElement).closest('.collapsible-section') as HTMLElement
+      if (section) {
+        section.classList.toggle('collapsed')
+      }
     })
   })
 }
